@@ -1,0 +1,28 @@
+{
+  "name": "jee-platform",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "react-router dev",
+    "build": "react-router build",
+    "deploy": "npm run build && wrangler pages deploy",
+    "preview": "wrangler pages dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-router/cloudflare": "^7.13.2",
+    "@supabase/supabase-js": "^2.101.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router": "^7.13.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260401.1",
+    "@react-router/dev": "^7.13.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.0.0",
+    "vite": "^5.4.21",
+    "wrangler": "^4.79.0"
+  }
+}

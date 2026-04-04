@@ -1,0 +1,7 @@
+node_modules
+.react-router
+build
+.wrangler
+.dev.vars
+*.local
+.env

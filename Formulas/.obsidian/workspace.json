@@ -1,0 +1,207 @@
+{
+  "main": {
+    "id": "47c6c3b1e39f22c0",
+    "type": "split",
+    "children": [
+      {
+        "id": "809069aaa2db2eca",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "068d23a99bfaca21",
+            "type": "leaf",
+            "state": {
+              "type": "release-notes",
+              "state": {
+                "currentVersion": "1.12.4"
+              },
+              "icon": "lucide-book-up",
+              "title": "Release Notes 1.12.4"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "fb9076d11239ad16",
+    "type": "split",
+    "children": [
+      {
+        "id": "344a414fadd7bb96",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "fa6f04eaae0b9111",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "byCreatedTime",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "fd09ba6b18d02363",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "252ba6f7d61508f7",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "c13bad08135d3870",
+    "type": "split",
+    "children": [
+      {
+        "id": "ad57c09ef9ec15dc",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ce8f1061cee84e3e",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Physics/Current Electricity.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Current Electricity"
+            }
+          },
+          {
+            "id": "f52abb3e7708e376",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Physics/Current Electricity.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Current Electricity"
+            }
+          },
+          {
+            "id": "4b68a47bef042795",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "0b1c3690c737497e",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "b8f7ea8d81453517",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Physics/Current Electricity.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Current Electricity"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "068d23a99bfaca21",
+  "lastOpenFiles": [
+    "Mathematics/Vectors.md",
+    "Physics/Current Electricity.md",
+    "Chemistry/Hydrocarbons.md",
+    "Pasted image 20251204075633.png",
+    "Images/Pasted image 20251204075716.png",
+    "Untitled.base",
+    "Physics/Rotational Motion.md",
+    "Images/Pasted image 20251203160158.png",
+    "Images/Pasted image 20251203160027.png",
+    "Pasted image 20251203155920.png",
+    "Images",
+    "Images/Pasted image 20251203164326.png",
+    "Images/Pasted image 20251203164056.png",
+    "Images/Pasted image 20251203163324.png",
+    "Images/Pasted image 20251203163307.png",
+    "Images/Pasted image 20251203163019.png",
+    "Welcome.md",
+    "Mathematics",
+    "Chemistry",
+    "Physics"
+  ]
+}
