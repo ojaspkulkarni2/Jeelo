@@ -1,5 +1,6 @@
 // Auto-maintained by hand — regenerate with `supabase gen types typescript`
 // after running migrations in production.
+// Last updated: migration 002 (folders + sharing + role unification)
 
 export type UserRole = "admin" | "student";
 export type QuestionType = "scq" | "mcq" | "integer" | "numerical" | "paragraph";
@@ -72,6 +73,17 @@ export interface Database {
         Insert: Omit<Database["public"]["Tables"]["paragraphs"]["Row"], "id" | "created_at">;
         Update: Partial<Database["public"]["Tables"]["paragraphs"]["Insert"]>;
       };
+      folders: {
+        Row: {
+          id: string;
+          owner_id: string;
+          parent_id: string | null;
+          name: string;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["folders"]["Row"], "id" | "created_at">;
+        Update: Partial<Database["public"]["Tables"]["folders"]["Insert"]>;
+      };
       questions: {
         Row: {
           id: string;
@@ -82,6 +94,8 @@ export interface Database {
           chapter: string;
           correct_answer: CorrectAnswer;
           paragraph_id: string | null;
+          folder_id: string | null;
+          is_shared: boolean;
           created_at: string;
         };
         Insert: Omit<Database["public"]["Tables"]["questions"]["Row"], "id" | "created_at">;

@@ -1,15 +1,13 @@
 import { data, redirect } from "react-router";
 import type { Route } from "./+types/signup";
-import { getSession, commitSession } from "~/lib/session.server";
+import { getSessionStorage } from "~/lib/session.server";
 import { signUp, getUser } from "~/lib/auth.server";
 import { useState } from "react";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
   const user = await getUser(request, env);
-  if (user) {
-    throw redirect(user.role === "admin" ? "/admin" : "/dashboard");
-  }
+  if (user) throw redirect("/library");
   return null;
 }
 
@@ -19,7 +17,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
   const displayName = String(formData.get("display_name") ?? "");
-  const role = formData.get("role") === "admin" ? "admin" : "student";
+  const role = "admin"; // single user type — everyone gets full access
 
   if (!email || !password || !displayName) {
     return data({ error: "All fields are required" }, { status: 400 });
@@ -37,11 +35,12 @@ export async function action({ request, context }: Route.ActionArgs) {
     return data({ confirmation: true });
   }
 
+  const { getSession, commitSession } = getSessionStorage(env);
   const session = await getSession(request.headers.get("Cookie"));
   session.set("access_token", result.access_token);
   session.set("refresh_token", result.refresh_token);
 
-  const destination = result.role === "admin" ? "/admin" : "/dashboard";
+  const destination = "/library";
   return redirect(destination, {
     headers: { "Set-Cookie": await commitSession(session) },
   });
@@ -128,20 +127,6 @@ export default function Signup({ actionData }: Route.ComponentProps) {
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
-            </div>
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>I am a</label>
-            <div style={styles.roleRow}>
-              <label style={styles.roleOption}>
-                <input type="radio" name="role" value="student" defaultChecked />
-                <span>Student</span>
-              </label>
-              <label style={styles.roleOption}>
-                <input type="radio" name="role" value="admin" />
-                <span>Test creator (Admin)</span>
-              </label>
             </div>
           </div>
 

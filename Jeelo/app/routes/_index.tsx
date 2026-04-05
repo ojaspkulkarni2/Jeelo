@@ -5,7 +5,7 @@ import { getUser } from "~/lib/auth.server";
 export async function loader({ request, context }: Route.LoaderArgs) {
   const user = await getUser(request, context.cloudflare.env);
   if (!user) throw redirect("/login");
-  throw redirect(user.role === "admin" ? "/admin" : "/dashboard");
+  throw redirect("/library");
 }
 
 export default function Index() {

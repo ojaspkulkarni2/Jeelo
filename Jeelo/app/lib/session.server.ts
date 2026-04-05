@@ -1,23 +1,28 @@
 import { createCookieSessionStorage } from "react-router";
 
-// Session secret — must be set as JEELO_SESSION_SECRET in Cloudflare env vars
-// and in .dev.vars for local development. Falls back to a dev-only default.
-const SESSION_SECRET =
-  (typeof process !== "undefined" && process.env?.JEELO_SESSION_SECRET) ||
-  "dev-only-secret-change-in-production";
+type SessionEnv = { JEELO_SESSION_SECRET: string };
 
-export const sessionStorage = createCookieSessionStorage({
-  cookie: {
-    name: "__jeelo_session",
-    httpOnly: true,
-    maxAge: 60 * 60 * 24 * 7, // 7 days
-    path: "/",
-    sameSite: "lax",
-    secrets: [SESSION_SECRET],
-    // Cloudflare Workers doesn't expose NODE_ENV — default to secure:true
-    // and override in .dev.vars if needed
-    secure: true,
-  },
-});
-
-export const { getSession, commitSession, destroySession } = sessionStorage;
+/**
+ * Creates a CookieSessionStorage scoped to the request-time Cloudflare env.
+ *
+ * IMPORTANT: Do NOT call createCookieSessionStorage() at module scope on
+ * Cloudflare Workers. Worker secrets are only available on the per-request
+ * `env` object — not on `process.env` — so a module-level call would always
+ * use the fallback dev secret in production, making sessions forgeable.
+ *
+ * Call this once per loader/action and destructure what you need:
+ *   const { getSession, commitSession } = getSessionStorage(env);
+ */
+export function getSessionStorage(env: SessionEnv) {
+  return createCookieSessionStorage({
+    cookie: {
+      name: "__jeelo_session",
+      httpOnly: true,
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: "/",
+      sameSite: "lax",
+      secrets: [env.JEELO_SESSION_SECRET],
+      secure: true,
+    },
+  });
+}

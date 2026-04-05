@@ -1,15 +1,13 @@
 import { data, redirect } from "react-router";
 import type { Route } from "./+types/login";
-import { getSession, commitSession } from "~/lib/session.server";
+import { getSessionStorage } from "~/lib/session.server";
 import { signIn, getUser } from "~/lib/auth.server";
 import { useState } from "react";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
   const user = await getUser(request, env);
-  if (user) {
-    throw redirect(user.role === "admin" ? "/admin" : "/dashboard");
-  }
+  if (user) throw redirect("/library");
   return null;
 }
 
@@ -29,11 +27,12 @@ export async function action({ request, context }: Route.ActionArgs) {
     return data({ error: result.error }, { status: 401 });
   }
 
+  const { getSession, commitSession } = getSessionStorage(env);
   const session = await getSession(request.headers.get("Cookie"));
   session.set("access_token", result.access_token);
   session.set("refresh_token", result.refresh_token);
 
-  const destination = result.role === "admin" ? "/admin" : "/dashboard";
+  const destination = "/library";
 
   return redirect(destination, {
     headers: { "Set-Cookie": await commitSession(session) },

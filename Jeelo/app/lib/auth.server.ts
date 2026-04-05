@@ -1,5 +1,5 @@
 import { redirect } from "react-router";
-import { getSession } from "./session.server";
+import { getSessionStorage } from "./session.server";
 import { createSessionClient, createServerClient, createAnonClient } from "./supabase.server";
 import type { Database } from "./database.types";
 
@@ -13,6 +13,7 @@ export async function getUser(
   request: Request,
   env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string; SUPABASE_SERVICE_ROLE_KEY: string }
 ): Promise<UserRow | null> {
+  const { getSession } = getSessionStorage(env);
   const session = await getSession(request.headers.get("Cookie"));
   const accessToken = session.get("access_token");
   if (!accessToken) return null;
@@ -38,6 +39,7 @@ export async function getUser(
 
 /**
  * Requires any logged-in user. Redirects to /login if not authenticated.
+ * This is now the single auth guard — there is only one user type.
  */
 export async function requireUser(
   request: Request,
@@ -49,30 +51,14 @@ export async function requireUser(
 }
 
 /**
- * Requires an admin user.
- * Redirects to /login if not authenticated, /dashboard if wrong role.
+ * @deprecated Use requireUser instead. Kept as alias during migration.
  */
-export async function requireAdmin(
-  request: Request,
-  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string; SUPABASE_SERVICE_ROLE_KEY: string }
-): Promise<UserRow> {
-  const user = await requireUser(request, env);
-  if (user.role !== "admin") throw redirect("/dashboard");
-  return user;
-}
+export const requireAdmin = requireUser;
 
 /**
- * Requires a student user.
- * Redirects to /login if not authenticated, /admin if wrong role.
+ * @deprecated Use requireUser instead. Kept as alias during migration.
  */
-export async function requireStudent(
-  request: Request,
-  env: { SUPABASE_URL: string; SUPABASE_ANON_KEY: string; SUPABASE_SERVICE_ROLE_KEY: string }
-): Promise<UserRow> {
-  const user = await requireUser(request, env);
-  if (user.role !== "student") throw redirect("/admin");
-  return user;
-}
+export const requireStudent = requireUser;
 
 /**
  * Sign in with email + password.

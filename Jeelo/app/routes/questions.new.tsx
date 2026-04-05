@@ -1,26 +1,48 @@
 import { data, redirect, Link } from "react-router";
 import { useState, useRef, useEffect } from "react";
-import type { Route } from "./+types/admin.questions.new";
-import { requireAdmin } from "~/lib/auth.server";
+import type { Route } from "./+types/questions.new";
+import { requireUser } from "~/lib/auth.server";
 import { createServerClient } from "~/lib/supabase.server";
 import { uploadImage } from "~/lib/storage.server";
-import { AdminNav } from "~/components/admin-nav";
+import { AppNav } from "~/components/app-nav";
 import type { QuestionType, Subject } from "~/lib/database.types";
 
 // ── Loader ────────────────────────────────────────────────────
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
-  const user = await requireAdmin(request, env);
+  const user = await requireUser(request, env);
   const supabase = createServerClient(env);
 
+  // Always fetch paragraphs regardless of folder validity
   const { data: paragraphs } = await supabase
     .from("paragraphs")
     .select("id, title, created_at")
     .eq("owner_id", user.id)
     .order("created_at", { ascending: false });
 
-  return { user, paragraphs: paragraphs ?? [] };
+  // Read folder_id from ?folder_id= so upload lands in the right folder
+  const url = new URL(request.url);
+  const rawFolderId = url.searchParams.get("folder_id");
+
+  if (!rawFolderId) {
+    return { user, paragraphs: paragraphs ?? [], folderId: null, folderName: null };
+  }
+
+  // Verify the folder belongs to this user — silently ignore if not
+  const { data: folder } = await supabase
+    .from("folders")
+    .select("id, name")
+    .eq("id", rawFolderId)
+    .eq("owner_id", user.id)
+    .single();
+
+  return {
+    user,
+    paragraphs: paragraphs ?? [],
+    folderId: folder?.id ?? null,
+    folderName: folder?.name ?? null,
+  };
 }
 
 // ── Answer parsing ────────────────────────────────────────────
@@ -42,6 +64,9 @@ function parseAnswerLine(
     if (opts.length === 0) return { error: "Empty line" };
     const invalid = opts.find((o) => !["a", "b", "c", "d"].includes(o));
     if (invalid) return { error: `"${invalid}" is not a valid option` };
+    // Deduplicate and sort (a < b < c < d) so storage is canonical.
+    // Without this, "a a b" stores ["A","A","B"] and "c a" stores ["C","A"],
+    // both of which break any equality-based scoring check.
     const unique = [...new Set(opts)].sort();
     return { answer: unique.map((o) => o.toUpperCase()) };
   }
@@ -65,7 +90,7 @@ function parseAnswerLine(
 
 export async function action({ request, context }: Route.ActionArgs) {
   const env = context.cloudflare.env;
-  const user = await requireAdmin(request, env);
+  const user = await requireUser(request, env);
   const formData = await request.formData();
 
   const imageFiles = (formData.getAll("images") as File[]).filter(
@@ -76,6 +101,9 @@ export async function action({ request, context }: Route.ActionArgs) {
   const type = String(formData.get("type") ?? "") as QuestionType;
   const paragraphId = formData.get("paragraph_id")
     ? String(formData.get("paragraph_id"))
+    : null;
+  const folderId = formData.get("folder_id")
+    ? String(formData.get("folder_id"))
     : null;
   const answerKey = String(formData.get("answer_key") ?? "");
 
@@ -157,13 +185,17 @@ export async function action({ request, context }: Route.ActionArgs) {
       chapter,
       correct_answer: correctAnswers[i],
       paragraph_id: paragraphId,
+      folder_id: folderId,
+      is_shared: false,
     }))
   );
 
   if (dbError)
     return data({ error: dbError.message }, { status: 500 });
 
-  return redirect("/admin/questions");
+  // Redirect back to the folder they came from, or library root
+  const destination = folderId ? `/library/folders/${folderId}` : "/library";
+  return redirect(destination);
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -186,7 +218,7 @@ export default function NewQuestion({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
-  const { user, paragraphs } = loaderData;
+  const { user, paragraphs, folderId, folderName } = loaderData;
   const error = actionData && "error" in actionData ? actionData.error : null;
 
   const [files, setFiles] = useState<File[]>([]);
@@ -246,7 +278,7 @@ export default function NewQuestion({
         background: "#f9fafb",
       }}
     >
-      <AdminNav displayName={user.display_name} />
+      <AppNav displayName={user.display_name} />
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
         {/* Breadcrumb */}
@@ -259,11 +291,22 @@ export default function NewQuestion({
           }}
         >
           <Link
-            to="/admin/questions"
+            to="/library"
             style={{ color: "#6b7280", textDecoration: "none", fontSize: 13 }}
           >
-            ← Questions
+            My Library
           </Link>
+          {folderId && folderName && (
+            <>
+              <span style={{ color: "#d1d5db" }}>›</span>
+              <Link
+                to={`/library/folders/${folderId}`}
+                style={{ color: "#6b7280", textDecoration: "none", fontSize: 13 }}
+              >
+                {folderName}
+              </Link>
+            </>
+          )}
           <span style={{ color: "#d1d5db" }}>›</span>
           <h1
             style={{
@@ -278,6 +321,10 @@ export default function NewQuestion({
         </div>
 
         <form method="post" encType="multipart/form-data">
+          {/* Pass folder context through the form */}
+          {folderId && (
+            <input type="hidden" name="folder_id" value={folderId} />
+          )}
           {error && (
             <div
               style={{
@@ -601,7 +648,7 @@ export default function NewQuestion({
                     <p style={{ fontSize: 13, color: "#9ca3af", margin: 0 }}>
                       No paragraphs yet.{" "}
                       <Link
-                        to="/admin/paragraphs/new"
+                        to="/paragraphs/new"
                         style={{ color: "#1a3a6b" }}
                       >
                         Upload one first →
@@ -713,7 +760,7 @@ export default function NewQuestion({
               </button>
 
               <Link
-                to="/admin/questions"
+                to={folderId ? `/library/folders/${folderId}` : "/library"}
                 style={{
                   fontSize: 13,
                   color: "#6b7280",
