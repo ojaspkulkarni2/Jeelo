@@ -387,6 +387,7 @@ export default function FolderView({ loaderData }: Route.ComponentProps) {
             </div>
             {questions.length === 0 ? (
               <div className="lib-empty" style={{ padding: "40px 24px" }}>
+                <img src="/jeelo-reading.png" alt="" className="lib-empty-mascot" draggable={false} />
                 <p className="lib-empty-title">{filter.subject || filter.type ? "No questions match this filter" : "This folder is empty"}</p>
                 <p className="lib-empty-body">{filter.subject || filter.type ? "Try clearing the filters." : "Add questions to this folder to get started."}</p>
                 {!filter.subject && !filter.type && <Link to={`/questions/new?folder_id=${folder.id}`} className="btn btn-primary"><IconPlus size={14} /> Add question</Link>}

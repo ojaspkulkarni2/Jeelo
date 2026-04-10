@@ -458,7 +458,7 @@ export default function TestResultPage({ loaderData }: Route.ComponentProps) {
     <div style={{ minHeight: "100vh" }}>
       {showResultSplash && (
         <div className="splash" aria-hidden="true">
-          <img src="/jeelo-logo.png" alt="Jeelo" className="splash-mascot-logo" draggable={false} />
+          <img src="/jeelo-jumping.png" alt="" className="splash-mascot-celebrate" draggable={false} />
         </div>
       )}
 

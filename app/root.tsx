@@ -7,12 +7,35 @@ import { useRouteError } from "react-router";
 export function ErrorBoundary() {
   const error = useRouteError() as any;
   return (
-    <html><body style={{fontFamily:"monospace",padding:40}}>
-      <h1>ERROR</h1>
-      <pre>{error?.status} {error?.statusText}</pre>
-      <pre>{error?.data}</pre>
-      <pre>{JSON.stringify(error, null, 2)}</pre>
-    </body></html>
+    <html>
+      <head><meta charSet="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Something went wrong · Jeelo</title></head>
+      <body style={{ margin: 0, fontFamily: "system-ui, sans-serif", background: "#fdf8f5", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <div style={{ textAlign: "center", padding: "40px 24px", maxWidth: 460 }}>
+          <img src="/jeelo-reading.png" alt="" draggable={false}
+            style={{ width: 140, height: "auto", marginBottom: 24, opacity: 0.9 }} />
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1a1a1a", margin: "0 0 10px" }}>Something went wrong</h1>
+          <p style={{ fontSize: 14, color: "#666", margin: "0 0 28px", lineHeight: 1.6 }}>
+            {error?.status === 404
+              ? "We couldn't find that page."
+              : "An unexpected error occurred. Try refreshing — if it keeps happening, let us know."}
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+            <a href="/" style={{ background: "#c0623a", color: "#fff", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, textDecoration: "none" }}>
+              Go home
+            </a>
+            <button onClick={() => window.location.reload()}
+              style={{ background: "transparent", border: "1.5px solid #ddd", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#444" }}>
+              Retry
+            </button>
+          </div>
+          {error?.status && (
+            <p style={{ marginTop: 32, fontSize: 11, color: "#bbb", fontFamily: "monospace" }}>
+              {error.status} {error.statusText}
+            </p>
+          )}
+        </div>
+      </body>
+    </html>
   );
 }
 

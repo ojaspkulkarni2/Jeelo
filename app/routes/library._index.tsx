@@ -272,7 +272,7 @@ export default function LibraryIndex({ loaderData }: Route.ComponentProps) {
         <div className="pg-body">
           {folders.length === 0 ? (
             <div className="lib-empty">
-              <div className="lib-empty-icon"><IconFolder size={28} /></div>
+              <img src="/jeelo-reading.png" alt="" className="lib-empty-mascot" draggable={false} />
               <p className="lib-empty-title">Your library is empty</p>
               <p className="lib-empty-body">Create a folder to start organising your questions.</p>
               <div style={{ display: "flex", gap: 10 }}>
