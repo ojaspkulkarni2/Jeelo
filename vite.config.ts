@@ -12,10 +12,6 @@ export default defineConfig({
     }),
     reactRouter(),
   ],
-  ssr: {
-    target: "webworker",
-    noExternal: true,
-  },
   resolve: {
     alias: {
       "~": path.resolve(__dirname, "./app"),
