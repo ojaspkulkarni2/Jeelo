@@ -5,12 +5,12 @@ const handler = createRequestHandler({ build, mode: "production" });
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-
-    // Serve static assets directly
-    if (url.pathname.startsWith("/assets/") || url.pathname === "/favicon.ico") {
-      return env.ASSETS.fetch(request);
-    }
+    // Try static assets first (covers /assets/*, *.png, *.ico, etc.)
+    // If the file doesn't exist in ASSETS it returns a 404 — fall through to SSR.
+    try {
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (assetResponse.status !== 404) return assetResponse;
+    } catch {}
 
     return handler({
       request,

@@ -778,3 +778,46 @@ select:focus {
   from { opacity: 0; transform: translateY(30px) scale(0.85); }
   to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
+
+/* ── Mascot logo fixes (v2) ──────────────────────────────────── */
+
+/* Sidebar: mascot-only, centred */
+.sb-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 20px;
+}
+.sb-mascot {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+}
+.sb-logo:hover .sb-mascot {
+  transform: rotate(-8deg) scale(1.12);
+}
+
+/* Landing nav logo image */
+.land-nav-logo-img {
+  height: 36px;
+  width: auto;
+  display: block;
+  pointer-events: none;
+}
+
+/* Auth pages (login / signup) logo image */
+.auth-visual-logo {
+  display: block;
+}
+.auth-visual-logo-img {
+  height: 48px;
+  width: auto;
+  pointer-events: none;
+}
+
+/* mascot-bounce also needed inside the test-take page (no global.css there) */
+@keyframes mascot-bounce {
+  from { opacity: 0; transform: translateY(20px) scale(0.85); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}

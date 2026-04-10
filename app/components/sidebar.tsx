@@ -48,9 +48,8 @@ export function Sidebar({ displayName }: SidebarProps) {
 
   return (
     <aside className="sidebar">
-      <Link to="/library" className="sb-logo">
-        <img src="/jeelo-pointing.png" alt="" className="sb-mascot" aria-hidden="true" draggable={false} />
-        Jeelo
+      <Link to="/library" className="sb-logo" aria-label="Jeelo home">
+        <img src="/jeelo-pointing.png" alt="Jeelo" className="sb-mascot" draggable={false} />
       </Link>
 
       <nav className="sb-nav">

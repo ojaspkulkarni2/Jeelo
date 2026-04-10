@@ -121,7 +121,9 @@ export default function Signup({ actionData }: Route.ComponentProps) {
       {/* Left — visual panel */}
       <div className="auth-visual">
         <div className="auth-visual-bg" />
-        <Link to="/" className="auth-visual-logo">Jeelo</Link>
+        <Link to="/" className="auth-visual-logo" aria-label="Jeelo home">
+          <img src="/jeelo-logo.png" alt="Jeelo" className="auth-visual-logo-img" draggable={false} />
+        </Link>
 
         <div className="auth-visual-body">
           <h2 className="auth-visual-headline">

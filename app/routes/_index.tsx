@@ -174,7 +174,7 @@ export default function LandingPage() {
     <div className="land-shell">
       {/* Nav */}
       <header className="land-nav">
-        <span className="land-nav-logo">Jeelo</span>
+        <img src="/jeelo-logo.png" alt="Jeelo" className="land-nav-logo-img" draggable={false} />
         <div className="land-nav-actions">
           <Link to="/login" className="btn btn-ghost btn-sm">Sign in</Link>
           <Link to="/signup" className="btn btn-primary btn-sm">Get started</Link>
