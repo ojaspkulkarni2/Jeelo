@@ -5,6 +5,13 @@ const handler = createRequestHandler({ build, mode: "production" });
 
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // Serve static assets directly
+    if (url.pathname.startsWith("/assets/") || url.pathname === "/favicon.ico") {
+      return env.ASSETS.fetch(request);
+    }
+
     return handler({
       request,
       env,
