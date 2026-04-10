@@ -12,7 +12,7 @@ export function ErrorBoundary() {
       <body style={{ margin: 0, fontFamily: "system-ui, sans-serif", background: "#fdf8f5", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
         <div style={{ textAlign: "center", padding: "40px 24px", maxWidth: 460 }}>
           <img src="/jeelo-reading.png" alt="" draggable={false}
-            style={{ width: 140, height: "auto", marginBottom: 24, opacity: 0.9 }} />
+            style={{ width: 140, height: "auto", marginBottom: 24, opacity: 0.9, transform: "translateX(12px)" }} />
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1a1a1a", margin: "0 0 10px" }}>Something went wrong</h1>
           <p style={{ fontSize: 14, color: "#666", margin: "0 0 28px", lineHeight: 1.6 }}>
             {error?.status === 404
