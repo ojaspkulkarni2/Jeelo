@@ -138,7 +138,7 @@ export default function SettingsPage({ loaderData, actionData }: Route.Component
       <Sidebar displayName={user.display_name} />
       <main className="app-main">
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 24px 60px" }}>
-          <div className="pg-head">
+          <div className="pg-head" style={{ paddingBottom: 28 }}>
             <div>
               <h1 className="pg-title">Settings</h1>
               <p className="pg-subtitle">Manage your profile and test defaults</p>

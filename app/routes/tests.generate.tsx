@@ -20,11 +20,13 @@ type ChapterGroup = {
 type SectionConfig = {
   id: string;
   subject: Subject | "";
-  chapter: string;
+  chapters: string[];   // multi-chapter mixing
+  chapter: string;       // kept for legacy single-select
   question_type: QuestionType | "";
   count: number;
   marks_correct: number;
   marks_wrong: number;
+  mixChapters: boolean;
 };
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -94,8 +96,10 @@ export async function action({ request, context }: Route.ActionArgs) {
     return data({ error: "Add at least one section" }, { status: 400 });
 
   for (const s of sectionConfigs) {
-    if (!s.subject || !s.chapter || !s.question_type || s.count < 1)
+    const effectiveChapters = s.mixChapters ? (s.chapters ?? []) : (s.chapter ? [s.chapter] : []);
+    if (!s.subject || effectiveChapters.length === 0 || !s.question_type || s.count < 1)
       return data({ error: "All section fields are required" }, { status: 400 });
+    s._effectiveChapters = effectiveChapters;
   }
 
   // Create the test
@@ -122,7 +126,9 @@ export async function action({ request, context }: Route.ActionArgs) {
       .from("test_sections")
       .insert({
         test_id: test.id,
-        name: `${SUBJECT_META[sc.subject as Subject]?.label} — ${sc.chapter}`,
+        name: sc._effectiveChapters.length > 1
+          ? `${SUBJECT_META[sc.subject as Subject]?.label} — Mixed (${sc._effectiveChapters.length} chapters)`
+          : `${SUBJECT_META[sc.subject as Subject]?.label} — ${sc._effectiveChapters[0]}`,
         question_type: sc.question_type as QuestionType,
         subject: sc.subject as Subject,
         marks_correct: sc.marks_correct,
@@ -141,7 +147,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       .select("id")
       .eq("owner_id", user.id)
       .eq("subject", sc.subject)
-      .eq("chapter", sc.chapter)
+      .in("chapter", sc._effectiveChapters)
       .eq("type", sc.question_type);
 
     const pool = (qs ?? []) as { id: string }[];
@@ -199,6 +205,8 @@ function makeSection(
     id: String(nextId++),
     subject: "",
     chapter: "",
+    chapters: [],
+    mixChapters: false,
     question_type: "",
     count: 10,
     marks_correct: defaultCorrect,
@@ -398,8 +406,9 @@ export default function TestGeneratePage({ loaderData, actionData }: Route.Compo
               {/* ── Sections ── */}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
                 {sections.map((sec, idx) => {
-                  const availTypes = typesFor(sec.subject, sec.chapter);
-                  const maxQ = maxFor(sec.subject, sec.chapter, sec.question_type);
+                  const effectiveFirstChapter = sec.mixChapters ? (sec.chapters[0] ?? "") : sec.chapter;
+                  const availTypes = typesFor(sec.subject, effectiveFirstChapter);
+                  const maxQ = maxFor(sec.subject, effectiveFirstChapter, sec.question_type);
                   const subj = sec.subject ? SUBJECT_META[sec.subject] : null;
 
                   return (
@@ -506,29 +515,57 @@ export default function TestGeneratePage({ loaderData, actionData }: Route.Compo
                           </select>
                         </div>
 
-                        {/* Chapter */}
-                        <div className="field">
-                          <label className="label">Chapter</label>
-                          <select
-                            className="input"
-                            value={sec.chapter}
-                            disabled={!sec.subject}
-                            onChange={(e) =>
-                              updateSection(sec.id, {
-                                chapter: e.target.value,
-                                question_type: "",
-                              })
-                            }
-                          >
-                            <option value="">
-                              {sec.subject ? "Select chapter" : "Select subject first"}
-                            </option>
-                            {chaptersFor(sec.subject).map((c) => (
-                              <option key={c.chapter} value={c.chapter}>
-                                {c.chapter}
-                              </option>
-                            ))}
-                          </select>
+                        {/* Chapter — single or mixed */}
+                        <div className="field" style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                            <label className="label" style={{ margin: 0 }}>Chapter{sec.mixChapters ? "s" : ""}</label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--c-text-3)", cursor: "pointer", userSelect: "none" as const }}>
+                              <input
+                                type="checkbox"
+                                checked={sec.mixChapters}
+                                disabled={!sec.subject}
+                                onChange={e => updateSection(sec.id, { mixChapters: e.target.checked, chapter: "", chapters: [], question_type: "" })}
+                                style={{ accentColor: "var(--c-brand-500)", cursor: "pointer" }}
+                              />
+                              Mix chapters into one section
+                            </label>
+                          </div>
+                          {sec.mixChapters ? (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 10px", border: "1px solid var(--c-border)", borderRadius: "var(--r-md)", background: "var(--c-subtle)", minHeight: 40 }}>
+                              {chaptersFor(sec.subject).map((c) => {
+                                const checked = sec.chapters.includes(c.chapter);
+                                return (
+                                  <label key={c.chapter} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", userSelect: "none" as const, padding: "3px 8px", borderRadius: 20, background: checked ? "var(--c-brand-100)" : "var(--c-surface)", border: `1px solid ${checked ? "var(--c-brand-300)" : "var(--c-border)"}`, color: checked ? "var(--c-brand-700)" : "var(--c-text-2)" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      style={{ display: "none" }}
+                                      onChange={e => {
+                                        const next = e.target.checked
+                                          ? [...sec.chapters, c.chapter]
+                                          : sec.chapters.filter(ch => ch !== c.chapter);
+                                        updateSection(sec.id, { chapters: next, question_type: "" });
+                                      }}
+                                    />
+                                    {c.chapter}
+                                  </label>
+                                );
+                              })}
+                              {!sec.subject && <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>Select subject first</span>}
+                            </div>
+                          ) : (
+                            <select
+                              className="input"
+                              value={sec.chapter}
+                              disabled={!sec.subject}
+                              onChange={(e) => updateSection(sec.id, { chapter: e.target.value, question_type: "" })}
+                            >
+                              <option value="">{sec.subject ? "Select chapter" : "Select subject first"}</option>
+                              {chaptersFor(sec.subject).map((c) => (
+                                <option key={c.chapter} value={c.chapter}>{c.chapter}</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
 
                         {/* Question type */}
@@ -537,7 +574,7 @@ export default function TestGeneratePage({ loaderData, actionData }: Route.Compo
                           <select
                             className="input"
                             value={sec.question_type}
-                            disabled={!sec.chapter}
+                            disabled={sec.mixChapters ? sec.chapters.length === 0 : !sec.chapter}
                             onChange={(e) =>
                               updateSection(sec.id, {
                                 question_type: e.target.value as QuestionType,
@@ -545,7 +582,7 @@ export default function TestGeneratePage({ loaderData, actionData }: Route.Compo
                             }
                           >
                             <option value="">
-                              {sec.chapter ? "Select type" : "Select chapter first"}
+                              {(sec.mixChapters ? sec.chapters.length > 0 : !!sec.chapter) ? "Select type" : "Select chapter first"}
                             </option>
                             {availTypes.map(([type, count]) => (
                               <option key={type} value={type}>

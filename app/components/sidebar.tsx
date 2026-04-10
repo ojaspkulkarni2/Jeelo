@@ -48,7 +48,10 @@ export function Sidebar({ displayName }: SidebarProps) {
 
   return (
     <aside className="sidebar">
-      <Link to="/library" className="sb-logo">Jeelo</Link>
+      <Link to="/library" className="sb-logo">
+        <img src="/jeelo-pointing.png" alt="" className="sb-mascot" aria-hidden="true" draggable={false} />
+        Jeelo
+      </Link>
 
       <nav className="sb-nav">
         <Link to="/library" className={`sb-link${isActive("/library") ? " active" : ""}`}>

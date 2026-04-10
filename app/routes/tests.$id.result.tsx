@@ -622,24 +622,7 @@ export default function TestResultPage({ loaderData }: Route.ComponentProps) {
             </Link>
           </div>
 
-          {/* ── Layer CTA ── */}
-          {(totalWrong + totalMissed) > 0 && !layerAlreadyExists && (
-            <div className="ro-layer-cta">
-              <div className="ro-layer-cta-text">
-                <span className="ro-layer-cta-eyebrow"><IconLayers size={12} /> Next layer</span>
-                <span className="ro-layer-cta-title">{totalWrong + totalMissed} questions to retry</span>
-                <span className="ro-layer-cta-body">
-                  A new test is created with only the questions you missed or got wrong — timed proportionally.
-                </span>
-              </div>
-              <Form method="post">
-                <input type="hidden" name="intent" value="layer" />
-                <button type="submit" className="ro-layer-cta-btn">
-                  <IconLayers size={16} /> Start Layer {nextLayerNum}
-                </button>
-              </Form>
-            </div>
-          )}
+
 
           {layerAlreadyExists && (totalWrong + totalMissed) > 0 && (
             <div className="ro-layer-cta" style={{ background: "var(--c-surface-2)", border: "1px solid var(--c-border)" }}>

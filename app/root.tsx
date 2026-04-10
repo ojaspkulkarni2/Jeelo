@@ -27,7 +27,12 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="splash" aria-hidden="true">
-      <span className="splash-wordmark">Jeelo</span>
+      <img
+        src="/jeelo-logo.png"
+        alt="Jeelo"
+        className="splash-mascot-logo"
+        draggable={false}
+      />
     </div>
   );
 }

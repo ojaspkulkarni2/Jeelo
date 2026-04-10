@@ -603,7 +603,7 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
             <thead>
               <tr style={{ background: "#e8e8e8" }}>
                 {["SECTION NAME","NO. OF QUESTIONS","ANSWERED","NOT ANSWERED","MARKED FOR REVIEW","ANSWERED AND MARKED FOR REVIEW","NOT VISITED"].map(h => (
-                  <th key={h} style={{ border: "1px solid #ccc", padding: "9px 12px", fontWeight: 700, textAlign: "left", fontSize: 12 }}>{h}</th>
+                  <th key={h} style={{ border: "1px solid #ccc", padding: "9px 12px", fontWeight: 700, textAlign: "left", fontSize: 12, color: "#111", background: "#e8e8e8" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1249,33 +1249,77 @@ function AnswerInput({ questionType, value, onChange, darkMode = false }: { ques
       </div>
     );
   }
-  if (questionType === "integer") {
+  if (questionType === "integer" || questionType === "numerical") {
+    const isNumerical = questionType === "numerical";
     const numStr = value !== null && value !== undefined ? String(value) : "";
-    function appendDigit(d: number) { onChange(parseInt(((numStr + d).replace(/^0+(?=\d)/, "")), 10)); }
-    function backspace() { const s = numStr.slice(0, -1); onChange(s === "" ? null : parseInt(s, 10)); }
-    return (
-      <div style={{ marginTop: 10 }}>
-        <p style={{ fontSize: 12, color: darkMode ? "#aaa" : "#555", margin: "0 0 8px" }}>Enter integer answer</p>
-        <input readOnly value={numStr} placeholder="—" style={{ width: 88, padding: "6px 10px", border: "2px solid #1a6eb5", borderRadius: 4, fontSize: 22, fontWeight: 700, color: "#1a6eb5", textAlign: "center" as const, background: darkMode ? "#1a2a3a" : "#eef2ff", display: "block", marginBottom: 10 }} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 40px)", gap: 5 }}>
-          {[7,8,9,4,5,6,1,2,3].map(n => (
-            <button key={n} type="button" onClick={() => appendDigit(n)} style={{ ...numpadBtn, background: darkMode ? "#2a2a2a" : "#fff", color: darkMode ? "#e0e0e0" : "#333", borderColor: darkMode ? "#444" : "#ccc" }}>{n}</button>
-          ))}
-          <button type="button" onClick={() => appendDigit(0)} style={{ ...numpadBtn, background: darkMode ? "#2a2a2a" : "#fff", color: darkMode ? "#e0e0e0" : "#333", borderColor: darkMode ? "#444" : "#ccc" }}>0</button>
-          <button type="button" onClick={backspace} style={{ ...numpadBtn, background: darkMode ? "#3a1a1a" : "#fee2e2", color: "#dc2626" }}>⌫</button>
-        </div>
-      </div>
+    const [cursorPos, setCursorPos] = React.useState(numStr.length);
+
+    function insertAt(ch: string) {
+      const c = Math.min(cursorPos, numStr.length);
+      if (!isNumerical && ch === ".") return;
+      if (ch === "." && numStr.includes(".")) return;
+      if (ch === "-" && (numStr.includes("-") || c !== 0)) return;
+      const next = numStr.slice(0, c) + ch + numStr.slice(c);
+      const parsed = isNumerical ? parseFloat(next) : parseInt(next.replace(/^-?0+(?=\d)/, m => m.startsWith('-') ? '-' : ''), 10);
+      onChange(isNaN(parsed) ? null : parsed);
+      setCursorPos(c + 1);
+    }
+    function doBackspace() {
+      const c = Math.min(cursorPos, numStr.length);
+      if (c === 0) return;
+      const next = numStr.slice(0, c - 1) + numStr.slice(c);
+      const parsed = isNumerical ? parseFloat(next) : parseInt(next, 10);
+      onChange(next === "" || next === "-" ? null : isNaN(parsed) ? null : parsed);
+      setCursorPos(c - 1);
+    }
+    function doClearAll() { onChange(null); setCursorPos(0); }
+    function moveCursor(dir: -1 | 1) { setCursorPos(p => Math.max(0, Math.min(numStr.length, p + dir))); }
+
+    const pad = darkMode ? "#2a2a2a" : "#f5f5f5";
+    const padTxt = darkMode ? "#e0e0e0" : "#333";
+    const padBorder = darkMode ? "#444" : "#bbb";
+    const nBtn = (label: string, onClick: () => void, opts?: { wide?: boolean; danger?: boolean; muted?: boolean }) => (
+      <button
+        key={label}
+        type="button"
+        onClick={onClick}
+        style={{
+          gridColumn: opts?.wide ? "1 / -1" : undefined,
+          height: 40, width: "100%",
+          background: opts?.danger ? (darkMode ? "#3a1a1a" : "#fee2e2") : opts?.muted ? (darkMode ? "#1e1e2a" : "#e8eaf6") : pad,
+          color: opts?.danger ? "#dc2626" : opts?.muted ? (darkMode ? "#9fa8da" : "#3949ab") : padTxt,
+          border: `1px solid ${opts?.danger ? "#fca5a5" : padBorder}`,
+          borderRadius: 4, cursor: "pointer",
+          fontSize: 14, fontWeight: 600,
+        }}
+      >{label}</button>
     );
-  }
-  if (questionType === "numerical") {
-    const numStr = value !== null && value !== undefined ? String(value) : "";
+
     return (
-      <div style={{ marginTop: 10 }}>
-        <p style={{ fontSize: 12, color: darkMode ? "#aaa" : "#555", margin: "0 0 8px" }}>Enter numerical answer</p>
-        <input type="number" step="any" value={numStr}
-          onChange={e => onChange(e.target.value === "" ? null : parseFloat(e.target.value))}
-          placeholder="e.g. 3.14"
-          style={{ padding: "8px 12px", border: "2px solid #1a6eb5", borderRadius: 4, fontSize: 16, fontWeight: 600, color: "#1a6eb5", width: 160, background: darkMode ? "#1a2a3a" : "#eef2ff", textAlign: "center" as const }} />
+      <div style={{ marginTop: 10, width: 188 }}>
+        <input
+          readOnly
+          value={numStr}
+          placeholder="\u2014"
+          style={{
+            width: "100%", boxSizing: "border-box",
+            padding: "7px 10px", border: "2px solid #1a6eb5", borderRadius: 4,
+            fontSize: 22, fontWeight: 700, color: "#1a6eb5",
+            textAlign: "center", background: darkMode ? "#1a2a3a" : "#eef2ff",
+            display: "block", marginBottom: 6,
+          }}
+        />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
+          {[7,8,9,4,5,6,1,2,3].map(n => nBtn(String(n), () => insertAt(String(n))))}
+          {nBtn("0", () => insertAt("0"))}
+          {isNumerical ? nBtn(".", () => insertAt(".")) : <div key="dot-placeholder" />}
+          {isNumerical ? nBtn("\u2212", () => insertAt("-")) : <div key="neg-placeholder" />}
+          {nBtn("Backspace", doBackspace, { wide: true, danger: true })}
+          {nBtn("Left", () => moveCursor(-1), { muted: true })}
+          {nBtn("Right", () => moveCursor(1), { muted: true })}
+          <div key="gap" />
+          {nBtn("Clear All", doClearAll, { wide: true })}
+        </div>
       </div>
     );
   }
@@ -1338,19 +1382,19 @@ const navArrowBtn: React.CSSProperties = {
 };
 const btnMarkReview: React.CSSProperties = {
   background: JEE_BLUE, color: "#fff", border: "none",
-  borderRadius: 4, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  borderRadius: 4, padding: "11px 20px", fontSize: 14, fontWeight: 600, cursor: "pointer",
 };
 const btnClear: React.CSSProperties = {
   background: "#fff", color: "#333", border: "1px solid #bbb",
-  borderRadius: 4, padding: "7px 14px", fontSize: 13, cursor: "pointer",
+  borderRadius: 4, padding: "10px 18px", fontSize: 14, cursor: "pointer",
 };
 const btnSaveNext: React.CSSProperties = {
   background: "#1a6eb5", color: "#fff", border: "none",
-  borderRadius: 4, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  borderRadius: 4, padding: "11px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer",
 };
 const btnSubmit: React.CSSProperties = {
   background: "#1a6eb5", color: "#fff", border: "2px solid #fff",
-  borderRadius: 4, padding: "6px 22px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  borderRadius: 4, padding: "10px 26px", fontSize: 14, fontWeight: 600, cursor: "pointer",
 };
 const numpadBtn: React.CSSProperties = {
   width: 40, height: 36, border: "1px solid #ccc", borderRadius: 4,
@@ -1380,5 +1424,5 @@ const tdStyle: React.CSSProperties = {
   border: "1px solid #bbb", padding: "9px 12px", verticalAlign: "middle" as const, color: "#000",
 };
 const confirmTd: React.CSSProperties = {
-  border: "1px solid #ccc", padding: "8px 12px", fontSize: 13, color: "#000",
+  border: "1px solid #ccc", padding: "8px 12px", fontSize: 13, color: "#111", background: "#fff",
 };

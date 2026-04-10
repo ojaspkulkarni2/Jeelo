@@ -270,34 +270,11 @@ export default function ResultOverviewPage({ loaderData }: Route.ComponentProps)
             </div>
           )}
 
-          {/* ── Generate next layer CTA — the highlight ── */}
-          {hasNextLayer ? (
-            <div className="ro-layer-cta">
-              <div className="ro-layer-cta-text">
-                <span className="ro-layer-cta-eyebrow">
-                  <IconLayers size={15} /> {result.wrong + result.skipped} questions to conquer
-                </span>
-                <span className="ro-layer-cta-title">
-                  Generate Layer {result.layer_number + 1}
-                </span>
-                <span className="ro-layer-cta-body">
-                  Every question you got wrong or skipped is waiting. Lock them in — layer by layer.
-                </span>
-              </div>
-              <Link
-                to={`/tests/${result.test_id}/layer/${result.next_layer_id}/exam`}
-                className="ro-layer-cta-btn"
-              >
-                Start Layer {result.layer_number + 1} <IconChevronRight size={18} />
-              </Link>
-            </div>
-          ) : (
-            <div className="ro-cta-row">
-              <Link to="/tests" className="btn btn-primary">
-                Back to My Tests
-              </Link>
-            </div>
-          )}
+          <div className="ro-cta-row">
+            <Link to="/tests" className="btn btn-primary">
+              Back to My Tests
+            </Link>
+          </div>
 
         </div>
       </div>

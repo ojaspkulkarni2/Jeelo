@@ -205,8 +205,16 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div className="land-visual" style={{ width: "100%", maxWidth: 460 }}>
-          <LayeredChainVisual />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, width: "100%", maxWidth: 460 }}>
+          <img
+            src="/jeelo-jumping.png"
+            alt="Jeelo mascot"
+            className="land-mascot"
+            draggable={false}
+          />
+          <div className="land-visual" style={{ width: "100%" }}>
+            <LayeredChainVisual />
+          </div>
         </div>
       </section>
 
