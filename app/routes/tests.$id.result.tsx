@@ -97,7 +97,9 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
   const answers = (attempt.answers ?? {}) as Record<string, { status?: string; answer?: unknown }>;
   const questionResults: ResultStatus[] = [];
   const sectionResults: Record<string, ResultStatus[]> = {};
+  const missedWrongQuestions: Array<{ qNum: number; subject: Subject; status: ResultStatus }> = [];
 
+  let globalQuestionIndex = 0;
   for (const sec of (rawSections ?? []) as any[]) {
     const tqs = [...((sec.test_questions ?? []) as any[])]
       .sort((a: any, b: any) => a.display_order - b.display_order);
@@ -105,6 +107,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     for (const tq of tqs) {
       const q = tq.questions;
       if (!q) continue;
+      globalQuestionIndex++;
       const state = answers[q.id];
       const given = state?.answer;
       const status = state?.status;
@@ -132,6 +135,14 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
       }
       questionResults.push(result);
       sectionResults[sec.id].push(result);
+      
+      if (result === "wrong" || result === "missed") {
+        missedWrongQuestions.push({
+          qNum: globalQuestionIndex,
+          subject: sec.subject as Subject,
+          status: result,
+        });
+      }
     }
   }
 
@@ -212,6 +223,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     existingLayerId:    existingLayer?.id ?? null,
     nextLayerNum,
     totalQuestions:     questionResults.length,
+    missedWrongQuestions,
   };
 }
 
@@ -418,6 +430,7 @@ export default function TestResultPage({ loaderData }: Route.ComponentProps) {
   const {
     test, subjectStats, totalCorrect, totalWrong, totalMissed, score,
     leaderboard, layerAlreadyExists, existingLayerId, nextLayerNum, totalQuestions,
+    missedWrongQuestions,
   } = loaderData;
 
   const [showResultSplash, setShowResultSplash] = useState(() => {
@@ -613,75 +626,156 @@ export default function TestResultPage({ loaderData }: Route.ComponentProps) {
             </Link>
           </div>
 
-          {/* ── The Loop — exact same classes as the landing page ── */}
-        </div>{/* close pg-body so land-how can go full-width */}
-        <section className="land-how" style={{ marginTop: 0 }}>
-          <div className="land-how-inner">
-            <p className="land-section-label">The loop</p>
-            <h2 className="land-section-title">Take it. Miss it. Drill it. Repeat.</h2>
-            <div className="land-steps">
-
-              {/* Step 1 — done: override circle to green with checkmark */}
-              <div className="land-step">
-                <div className="land-step-num" style={{ background: "var(--c-success)" }}>
-                  <IconCheck size={18} strokeWidth={2.5} />
+          {/* ── Missed Questions Summary (RedoMissedVisual style from landing) ── */}
+          {(totalWrong + totalMissed) > 0 && (
+            <div style={{
+              marginTop: 24,
+              borderRadius: 14,
+              background: "var(--c-surface)",
+              border: "1.5px solid var(--c-border-strong)",
+              overflow: "hidden",
+              boxShadow: "var(--shadow-md)",
+            }}>
+              <div style={{ 
+                padding: "14px 18px 12px", 
+                borderBottom: "1px solid var(--c-border)", 
+                background: "var(--c-subtle)", 
+                display: "flex", 
+                alignItems: "center", 
+                justifyContent: "space-between" 
+              }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--c-text-3)" }}>
+                    After submitting your test
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--c-text)", marginTop: 2 }}>
+                    {totalWrong + totalMissed} question{(totalWrong + totalMissed) !== 1 ? "s" : ""} missed
+                  </div>
                 </div>
-                <p className="land-step-title">Take your test</p>
-                <p className="land-step-body">
-                  Done — {totalCorrect} correct, {totalWrong} wrong, {totalMissed} skipped.
-                </p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  {totalWrong > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--c-error)" }}>
+                      <IconX size={11} strokeWidth={2.5} /> {totalWrong} wrong
+                    </div>
+                  )}
+                  {totalMissed > 0 && (
+                    <div style={{ fontSize: 11, color: "var(--c-text-3)" }}>
+                      {totalMissed} skipped
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Step 2 — redo missed: actionable */}
-              <div className="land-step">
-                <div className="land-step-num" style={{ background: (totalWrong + totalMissed) > 0 ? "var(--c-brand-500)" : "var(--c-border)", color: (totalWrong + totalMissed) > 0 ? "#fff" : "var(--c-text-3)" }}>
-                  2
-                </div>
-                <p className="land-step-title">Redo missed</p>
-                {(totalWrong + totalMissed) > 0 ? (
-                  layerAlreadyExists ? (
-                    <p className="land-step-body">
-                      Layer {nextLayerNum} is ready with {totalWrong + totalMissed} questions.{" "}
-                      <Link to={`/tests/${existingLayerId}`} style={{ color: "var(--c-brand-500)", fontWeight: 600 }}>
-                        Go to Layer {nextLayerNum} →
-                      </Link>
-                    </p>
-                  ) : (
-                    <>
-                      <p className="land-step-body" style={{ marginBottom: 14 }}>
-                        {totalWrong + totalMissed} question{(totalWrong + totalMissed) !== 1 ? "s" : ""} missed or wrong — compiled into Layer {nextLayerNum}, timed proportionally.
-                      </p>
-                      <Form method="post">
-                        <input type="hidden" name="intent" value="layer" />
-                        <button type="submit" className="btn btn-primary btn-sm">
-                          <IconLayers size={13} /> Start Layer {nextLayerNum}
-                        </button>
-                      </Form>
-                    </>
-                  )
+              <div style={{ padding: "10px 18px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {missedWrongQuestions.map((q) => {
+                  const subjectShort = q.subject === "physics" ? "Phys" :
+                                     q.subject === "chemistry" ? "Chem" :
+                                     q.subject === "mathematics" ? "Math" : q.subject;
+                  return (
+                    <div key={q.qNum} style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 3,
+                      padding: "6px 8px",
+                      borderRadius: 7,
+                      background: q.status === "wrong" ? "rgba(192,48,42,0.08)" : "var(--c-subtle)",
+                      border: `1px solid ${q.status === "wrong" ? "rgba(192,48,42,0.2)" : "var(--c-border)"}`,
+                    }}>
+                      <span style={{ 
+                        fontSize: 12, 
+                        fontWeight: 700, 
+                        color: q.status === "wrong" ? "var(--c-error)" : "var(--c-text-3)" 
+                      }}>
+                        Q{q.qNum}
+                      </span>
+                      <span style={{ fontSize: 9, color: "var(--c-text-3)" }}>
+                        {subjectShort}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ padding: "12px 18px 14px", borderTop: "1px solid var(--c-border)" }}>
+                {layerAlreadyExists ? (
+                  <Link
+                    to={`/tests/${existingLayerId}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      background: "var(--c-brand-500)",
+                      borderRadius: 10,
+                      padding: "12px 16px",
+                      boxShadow: "0 4px 18px rgba(215,118,86,0.4)",
+                      textDecoration: "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ 
+                        background: "rgba(255,255,255,0.2)", 
+                        borderRadius: 7, 
+                        padding: "6px 7px", 
+                        display: "flex" 
+                      }}>
+                        <IconLayers size={15} strokeWidth={2} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
+                          Go to Layer {nextLayerNum}
+                        </div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", marginTop: 1 }}>
+                          {totalWrong + totalMissed} questions waiting
+                        </div>
+                      </div>
+                    </div>
+                    <IconChevronRight size={16} style={{ color: "#fff" }} />
+                  </Link>
                 ) : (
-                  <p className="land-step-body" style={{ color: "var(--c-success)", fontWeight: 600 }}>
-                    Nothing missed — perfect round!
-                  </p>
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="layer" />
+                    <button
+                      type="submit"
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: "var(--c-brand-500)",
+                        borderRadius: 10,
+                        padding: "12px 16px",
+                        boxShadow: "0 4px 18px rgba(215,118,86,0.4)",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ 
+                          background: "rgba(255,255,255,0.2)", 
+                          borderRadius: 7, 
+                          padding: "6px 7px", 
+                          display: "flex" 
+                        }}>
+                          <IconLayers size={15} strokeWidth={2} />
+                        </div>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
+                            Redo missed ({totalWrong + totalMissed})
+                          </div>
+                          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", marginTop: 1 }}>
+                            Creates Layer {nextLayerNum} instantly
+                          </div>
+                        </div>
+                      </div>
+                      <IconChevronRight size={16} style={{ color: "#fff" }} />
+                    </button>
+                  </Form>
                 )}
               </div>
-
-              {/* Step 3 — future state */}
-              <div className="land-step">
-                <div className="land-step-num" style={{ background: "var(--c-border)", color: "var(--c-text-3)" }}>
-                  3
-                </div>
-                <p className="land-step-title">Close the loop</p>
-                <p className="land-step-body">
-                  Each layer gets shorter as your weak spots shrink. Repeat until
-                  every question in the original test has been answered correctly.
-                  The chain ends when the work is done.
-                </p>
-              </div>
-
             </div>
-          </div>
-        </section>
+          )}
+
         </div>
       </div>
     </div>
