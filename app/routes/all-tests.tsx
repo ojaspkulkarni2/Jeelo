@@ -17,8 +17,15 @@ type PublicTest = {
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
-  const user = await requireUser(request, env);
   const supabase = createServerClient(env);
+  
+  // Make page public - user is optional
+  let user = null;
+  try {
+    user = await requireUser(request, env);
+  } catch {
+    // Not authenticated, continue as guest
+  }
 
   const { data: raw } = await supabase
     .from("tests")
@@ -41,20 +48,22 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     }
   }
 
-  // My attempts
-  const { data: myAttempts } = await supabase
-    .from("attempts")
-    .select("test_id, submitted_at, score_breakdown")
-    .eq("student_id", user.id);
+  // My attempts (only if logged in)
+  let myMap = new Map<string, { submitted: boolean; scoreTotal: number | null; scoreMax: number | null }>();
+  if (user) {
+    const { data: myAttempts } = await supabase
+      .from("attempts")
+      .select("test_id, submitted_at, score_breakdown")
+      .eq("student_id", user.id);
 
-  const myMap = new Map<string, { submitted: boolean; scoreTotal: number | null; scoreMax: number | null }>();
-  for (const a of myAttempts ?? []) {
-    const sb = a.score_breakdown as any;
-    myMap.set(a.test_id, {
-      submitted: !!a.submitted_at,
-      scoreTotal: sb?.total ?? null,
-      scoreMax:   sb?.max_marks ?? null,
-    });
+    for (const a of myAttempts ?? []) {
+      const sb = a.score_breakdown as any;
+      myMap.set(a.test_id, {
+        submitted: !!a.submitted_at,
+        scoreTotal: sb?.total ?? null,
+        scoreMax:   sb?.max_marks ?? null,
+      });
+    }
   }
 
   const tests: PublicTest[] = (raw ?? []).map((t: any) => {
@@ -83,10 +92,9 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 
 const SUBJECT_TABS = [
-  { label: "All",         value: null },
+  { label: "Mathematics", value: "mathematics" },
   { label: "Physics",     value: "physics" },
   { label: "Chemistry",   value: "chemistry" },
-  { label: "Mathematics", value: "mathematics" },
 ];
 
 function ScoreBadge({ total, max }: { total: number; max: number }) {
@@ -159,11 +167,9 @@ function DiscoverCard({ test: t, rank }: { test: PublicTest; rank: number }) {
 export default function DiscoverPage({ loaderData }: Route.ComponentProps) {
   const { user, tests } = loaderData as any;
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeSubject = searchParams.get("subject") ?? null;
+  const activeSubject = searchParams.get("subject") ?? "mathematics";
 
-  const filtered = activeSubject
-    ? tests.filter((t: PublicTest) => t.subjects.includes(activeSubject))
-    : tests;
+  const filtered = tests.filter((t: PublicTest) => t.subjects.includes(activeSubject));
 
   const unattempted = filtered.filter((t: PublicTest) => !t.submitted);
   const attempted   = filtered.filter((t: PublicTest) => t.submitted);
@@ -175,7 +181,7 @@ export default function DiscoverPage({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="app-layout">
-      <Sidebar displayName={user.display_name} />
+      <Sidebar displayName={user?.display_name} />
       <main className="app-main">
         <div className="pg-head">
           <div>

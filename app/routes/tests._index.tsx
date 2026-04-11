@@ -6,7 +6,6 @@ import { createServerClient } from "~/lib/supabase.server";
 import { Sidebar } from "~/components/sidebar";
 import { DotMenu } from "~/components/three-dot-menu";
 import { IconLayers, IconPlus, IconPlay, IconTests, IconTrash, IconX, IconFlash } from "~/components/icons";
-import { useFetcher as useQuickFetcher } from "react-router";
 
 type TestSummary = {
   id: string; title: string; duration_mins: number;
@@ -131,64 +130,6 @@ export async function action({ request, context }: Route.ActionArgs) {
     const id = String(formData.get("id") ?? "");
     await supabase.from("tests").delete().eq("id", id).eq("owner_id", user.id);
     return null;
-  }
-
-  if (intent === "quick_chemistry_test") {
-    // Pull all chemistry SCQs owned by this user
-    const { data: qs } = await supabase
-      .from("questions")
-      .select("id")
-      .eq("owner_id", user.id)
-      .eq("subject", "chemistry")
-      .eq("type", "scq");
-
-    const pool = (qs ?? []) as { id: string }[];
-    if (pool.length === 0) return data({ error: "No Chemistry SCQs found in your library." }, { status: 400 });
-
-    // Fisher-Yates shuffle
-    for (let j = pool.length - 1; j > 0; j--) {
-      const k = Math.floor(Math.random() * (j + 1));
-      [pool[j], pool[k]] = [pool[k], pool[j]];
-    }
-
-    // Pick a random count between 10 and 15 (capped to what's available)
-    const targetCount = Math.min(pool.length, 10 + Math.floor(Math.random() * 6));
-    const picked      = pool.slice(0, targetCount);
-
-    // Duration: 2 minutes per question
-    const durationMins = targetCount * 2;
-
-    const now = new Date();
-    const label = `${now.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} ${now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`;
-    const title = `Quick Chemistry · ${picked.length}Q · ${label}`;
-
-    const { data: test, error: testErr } = await supabase
-      .from("tests")
-      .insert({ owner_id: user.id, title, duration_mins: durationMins, is_published: true })
-      .select("id")
-      .single();
-    if (testErr || !test) return data({ error: "Failed to create quick test." }, { status: 500 });
-
-    const { data: sec, error: secErr } = await supabase
-      .from("test_sections")
-      .insert({
-        test_id: test.id,
-        name: "Chemistry — Mixed SCQ",
-        question_type: "scq",
-        subject: "chemistry",
-        marks_correct: 4,
-        marks_wrong: -1,
-        display_order: 1,
-      })
-      .select("id")
-      .single();
-    if (secErr || !sec) return data({ error: "Failed to create section." }, { status: 500 });
-
-    await supabase.from("test_questions").insert(
-      picked.map((q, idx) => ({ test_section_id: sec.id, question_id: q.id, display_order: idx + 1 }))
-    );
-
-    throw redirect(`/tests/${test.id}/preview`);
   }
 
   return null;
@@ -364,6 +305,15 @@ function TestCard({ test: t }: { test: TestSummary }) {
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const [layersOpen, setLayersOpen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  function handleCopyLink() {
+    const url = `${window.location.origin}/tests/${t.id}/preview`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  }
   const hrs = Math.floor(t.duration_mins / 60);
   const mins = t.duration_mins % 60;
   const durationStr = hrs > 0 ? `${hrs}h ${mins > 0 ? `${mins}m` : ""}`.trim() : `${mins}m`;
@@ -468,9 +418,21 @@ function TestCard({ test: t }: { test: TestSummary }) {
           {!isPublished ? (
             <span className="list-status-badge draft">Draft</span>
           ) : (
-            <span className={`list-status-badge ${t.visibility === 'public' ? 'published' : t.visibility === 'private' ? 'private' : 'invite'}`}>
-              {visibilityMeta.label}
-            </span>
+            <>
+              <span className={`list-status-badge ${t.visibility === 'public' ? 'published' : t.visibility === 'private' ? 'private' : 'invite'}`}>
+                {visibilityMeta.label}
+              </span>
+              {t.visibility === 'invite_only' && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleCopyLink(); }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ fontSize: 12 }}
+                >
+                  {linkCopied ? "✓ Copied!" : "Copy link"}
+                </button>
+              )}
+            </>
           )}
           {isPublished ? (
             t.submitted ? (
@@ -541,7 +503,6 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
   const { user, tests } = loaderData;
   const error = actionData && "error" in actionData ? actionData.error : null;
   const [showCreate, setShowCreate] = useState(false);
-  const quickFetcher = useQuickFetcher();
 
   const unattempted = tests.filter((t) => !t.submitted);
   const attempted   = tests.filter((t) => t.submitted);
@@ -557,17 +518,6 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
           </div>
           {tests.length > 0 && (
             <div style={{ display: "flex", gap: 8 }}>
-              <quickFetcher.Form method="post">
-                <input type="hidden" name="intent" value="quick_chemistry_test" />
-                <button
-                  type="submit"
-                  className="btn btn-ghost btn-sm"
-                  title="Pick 10–15 random Chemistry SCQs and start immediately"
-                  disabled={quickFetcher.state !== "idle"}
-                >
-                  ⚗️ {quickFetcher.state !== "idle" ? "Creating…" : "Quick test"}
-                </button>
-              </quickFetcher.Form>
               <Link to="/tests/generate" className="btn btn-ghost btn-sm">
                 <IconFlash size={14} /> Generate
               </Link>
@@ -587,12 +537,7 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
                 <p className="lib-empty-body">Create your first test. Every wrong answer automatically becomes the next layer.</p>
                 <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                   <button className="btn btn-primary" onClick={() => setShowCreate(true)}><IconPlus size={15} /> Create a test</button>
-                  <quickFetcher.Form method="post">
-                    <input type="hidden" name="intent" value="quick_chemistry_test" />
-                    <button type="submit" className="btn btn-ghost" disabled={quickFetcher.state !== "idle"}>
-                      ⚗️ {quickFetcher.state !== "idle" ? "Creating…" : "Quick Chemistry test"}
-                    </button>
-                  </quickFetcher.Form>
+
                 </div>
               </div>
               <LayeredExplainer />

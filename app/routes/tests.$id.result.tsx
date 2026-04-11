@@ -485,19 +485,10 @@ export default function TestResultPage({ loaderData }: Route.ComponentProps) {
                 </button>
               </Form>
             )}
-            {(totalWrong + totalMissed) > 0 && (
-              layerAlreadyExists ? (
-                <Link to={`/tests/${existingLayerId}`} className="btn btn-ghost btn-sm">
-                  <IconLayers size={13} /> View Layer {nextLayerNum}
-                </Link>
-              ) : (
-                <Form method="post">
-                  <input type="hidden" name="intent" value="layer" />
-                  <button type="submit" className="btn btn-primary btn-sm">
-                    <IconLayers size={13} /> Redo missed ({totalWrong + totalMissed})
-                  </button>
-                </Form>
-              )
+            {layerAlreadyExists && (totalWrong + totalMissed) > 0 && (
+              <Link to={`/tests/${existingLayerId}`} className="btn btn-ghost btn-sm">
+                <IconLayers size={13} /> View Layer {nextLayerNum}
+              </Link>
             )}
           </div>
         </div>
@@ -622,40 +613,75 @@ export default function TestResultPage({ loaderData }: Route.ComponentProps) {
             </Link>
           </div>
 
-          {/* ── Layer CTA ── */}
-          {(totalWrong + totalMissed) > 0 && !layerAlreadyExists && (
-            <div className="ro-layer-cta">
-              <div className="ro-layer-cta-text">
-                <span className="ro-layer-cta-eyebrow"><IconLayers size={12} /> Next layer</span>
-                <span className="ro-layer-cta-title">{totalWrong + totalMissed} questions to retry</span>
-                <span className="ro-layer-cta-body">
-                  A new test is created with only the questions you missed or got wrong — timed proportionally.
-                </span>
-              </div>
-              <Form method="post">
-                <input type="hidden" name="intent" value="layer" />
-                <button type="submit" className="ro-layer-cta-btn">
-                  <IconLayers size={16} /> Start Layer {nextLayerNum}
-                </button>
-              </Form>
-            </div>
-          )}
+          {/* ── The Loop — exact same classes as the landing page ── */}
+        </div>{/* close pg-body so land-how can go full-width */}
+        <section className="land-how" style={{ marginTop: 0 }}>
+          <div className="land-how-inner">
+            <p className="land-section-label">The loop</p>
+            <h2 className="land-section-title">Take it. Miss it. Drill it. Repeat.</h2>
+            <div className="land-steps">
 
-          {layerAlreadyExists && (totalWrong + totalMissed) > 0 && (
-            <div className="ro-layer-cta" style={{ background: "var(--c-surface-2)", border: "1px solid var(--c-border)" }}>
-              <div className="ro-layer-cta-text" style={{ color: "var(--c-text)" }}>
-                <span className="ro-layer-cta-eyebrow" style={{ color: "var(--c-text-3)" }}><IconLayers size={12} /> Layer already created</span>
-                <span className="ro-layer-cta-title" style={{ fontSize: 22 }}>Layer {nextLayerNum} exists</span>
-                <span className="ro-layer-cta-body" style={{ color: "var(--c-text-2)" }}>
-                  You already created a layer from this result. Complete it before generating another.
-                </span>
+              {/* Step 1 — done: override circle to green with checkmark */}
+              <div className="land-step">
+                <div className="land-step-num" style={{ background: "var(--c-success)" }}>
+                  <IconCheck size={18} strokeWidth={2.5} />
+                </div>
+                <p className="land-step-title">Take your test</p>
+                <p className="land-step-body">
+                  Done — {totalCorrect} correct, {totalWrong} wrong, {totalMissed} skipped.
+                </p>
               </div>
-              <Link to={`/tests/${existingLayerId}`} className="btn btn-ghost" style={{ flexShrink: 0, fontWeight: 600 }}>
-                Go to Layer {nextLayerNum} →
-              </Link>
-            </div>
-          )}
 
+              {/* Step 2 — redo missed: actionable */}
+              <div className="land-step">
+                <div className="land-step-num" style={{ background: (totalWrong + totalMissed) > 0 ? "var(--c-brand-500)" : "var(--c-border)", color: (totalWrong + totalMissed) > 0 ? "#fff" : "var(--c-text-3)" }}>
+                  2
+                </div>
+                <p className="land-step-title">Redo missed</p>
+                {(totalWrong + totalMissed) > 0 ? (
+                  layerAlreadyExists ? (
+                    <p className="land-step-body">
+                      Layer {nextLayerNum} is ready with {totalWrong + totalMissed} questions.{" "}
+                      <Link to={`/tests/${existingLayerId}`} style={{ color: "var(--c-brand-500)", fontWeight: 600 }}>
+                        Go to Layer {nextLayerNum} →
+                      </Link>
+                    </p>
+                  ) : (
+                    <>
+                      <p className="land-step-body" style={{ marginBottom: 14 }}>
+                        {totalWrong + totalMissed} question{(totalWrong + totalMissed) !== 1 ? "s" : ""} missed or wrong — compiled into Layer {nextLayerNum}, timed proportionally.
+                      </p>
+                      <Form method="post">
+                        <input type="hidden" name="intent" value="layer" />
+                        <button type="submit" className="btn btn-primary btn-sm">
+                          <IconLayers size={13} /> Start Layer {nextLayerNum}
+                        </button>
+                      </Form>
+                    </>
+                  )
+                ) : (
+                  <p className="land-step-body" style={{ color: "var(--c-success)", fontWeight: 600 }}>
+                    Nothing missed — perfect round!
+                  </p>
+                )}
+              </div>
+
+              {/* Step 3 — future state */}
+              <div className="land-step">
+                <div className="land-step-num" style={{ background: "var(--c-border)", color: "var(--c-text-3)" }}>
+                  3
+                </div>
+                <p className="land-step-title">Close the loop</p>
+                <p className="land-step-body">
+                  Each layer gets shorter as your weak spots shrink. Repeat until
+                  every question in the original test has been answered correctly.
+                  The chain ends when the work is done.
+                </p>
+              </div>
+
+            </div>
+          </div>
+        </section>
         </div>
       </div>
     </div>

@@ -8,30 +8,45 @@ export function ErrorBoundary() {
   const error = useRouteError() as any;
   return (
     <html>
-      <head><meta charSet="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Something went wrong · Jeelo</title></head>
-      <body style={{ margin: 0, fontFamily: "system-ui, sans-serif", background: "#fdf8f5", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-        <div style={{ textAlign: "center", padding: "40px 24px", maxWidth: 460 }}>
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Something went wrong · Jeelo</title>
+        {/* Detect system/stored theme before first paint — same logic as Layout */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var s=localStorage.getItem('jeelo-theme');var d=window.matchMedia('(prefers-color-scheme:dark)').matches;if(s==='dark'||(s===null&&d))document.documentElement.classList.add('dark')}catch(e){}})()` }} />
+        <style dangerouslySetInnerHTML={{ __html: `
+          *{box-sizing:border-box}
+          body{margin:0;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fdf8f5;transition:background .25s}
+          html.dark body{background:#262624}
+          .err-wrap{text-align:center;padding:40px 24px;max-width:460px}
+          .err-title{font-size:22px;font-weight:700;color:#1a1a1a;margin:0 0 10px}
+          html.dark .err-title{color:#f0e8dc}
+          .err-body{font-size:14px;color:#666;margin:0 0 28px;line-height:1.6}
+          html.dark .err-body{color:#b8a898}
+          .err-btns{display:flex;gap:10px;justify-content:center}
+          .err-home{background:#c0623a;color:#fff;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:600;text-decoration:none;font-family:inherit;cursor:pointer;border:none}
+          .err-retry{background:transparent;border:1.5px solid #ddd;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;color:#444;font-family:inherit}
+          html.dark .err-retry{border-color:#3e3c37;color:#b8a898;background:#2e2c29}
+          .err-code{margin-top:32px;font-size:11px;color:#bbb;font-family:monospace}
+          html.dark .err-code{color:#524f48}
+        `}} />
+      </head>
+      <body>
+        <div className="err-wrap">
           <img src="/jeelo-reading.png" alt="" draggable={false}
-            style={{ width: 140, height: "auto", marginBottom: 24, opacity: 0.9, transform: "translateX(12px)" }} />
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1a1a1a", margin: "0 0 10px" }}>Something went wrong</h1>
-          <p style={{ fontSize: 14, color: "#666", margin: "0 0 28px", lineHeight: 1.6 }}>
+            style={{ width: 140, height: "auto", marginBottom: 24, opacity: 0.9, transform: "translateX(40px)" }} />
+          <h1 className="err-title">Something went wrong</h1>
+          <p className="err-body">
             {error?.status === 404
               ? "We couldn't find that page."
               : "An unexpected error occurred. Try refreshing — if it keeps happening, let us know."}
           </p>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-            <a href="/" style={{ background: "#c0623a", color: "#fff", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, textDecoration: "none" }}>
-              Go home
-            </a>
-            <button onClick={() => window.location.reload()}
-              style={{ background: "transparent", border: "1.5px solid #ddd", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#444" }}>
-              Retry
-            </button>
+          <div className="err-btns">
+            <a href="/" className="err-home">Go home</a>
+            <button onClick={() => window.location.reload()} className="err-retry">Retry</button>
           </div>
           {error?.status && (
-            <p style={{ marginTop: 32, fontSize: 11, color: "#bbb", fontFamily: "monospace" }}>
-              {error.status} {error.statusText}
-            </p>
+            <p className="err-code">{error.status} {error.statusText}</p>
           )}
         </div>
       </body>

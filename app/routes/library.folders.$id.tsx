@@ -9,7 +9,7 @@ import { Sidebar } from "~/components/sidebar";
 import { DotMenu } from "~/components/three-dot-menu";
 import { IconFolder, IconPlus, IconTrash, IconShare, IconX, IconChevronRight, IconEdit } from "~/components/icons";
 
-type FolderRow = { id: string; name: string; created_at: string; question_count: number };
+type FolderRow = { id: string; name: string; created_at: string; question_count: number; subfolder_count: number };
 type QuestionRow = { id: string; image_url: string; type: QuestionType; subject: Subject; chapter: string; is_shared: boolean; created_at: string };
 type BreadcrumbItem = { id: string | null; name: string };
 
@@ -41,11 +41,14 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   const { data: rawSubFolders } = await supabase.from("folders").select("id, name, created_at").eq("owner_id", user.id).eq("parent_id", folderId).order("name", { ascending: true });
   const subFolderIds = (rawSubFolders ?? []).map((f) => f.id);
   let folderCounts: Record<string, number> = {};
+  let subFolderCounts: Record<string, number> = {};
   if (subFolderIds.length > 0) {
     const { data: countRows } = await supabase.from("questions").select("folder_id").in("folder_id", subFolderIds).eq("owner_id", user.id);
     for (const row of countRows ?? []) { if (row.folder_id) folderCounts[row.folder_id] = (folderCounts[row.folder_id] ?? 0) + 1; }
+    const { data: subSubRows } = await supabase.from("folders").select("parent_id").in("parent_id", subFolderIds).eq("owner_id", user.id);
+    for (const row of subSubRows ?? []) { if (row.parent_id) subFolderCounts[row.parent_id] = (subFolderCounts[row.parent_id] ?? 0) + 1; }
   }
-  const subFolders: FolderRow[] = (rawSubFolders ?? []).map((f) => ({ ...f, question_count: folderCounts[f.id] ?? 0 }));
+  const subFolders: FolderRow[] = (rawSubFolders ?? []).map((f) => ({ ...f, question_count: folderCounts[f.id] ?? 0, subfolder_count: subFolderCounts[f.id] ?? 0 }));
 
   let qQuery = supabase.from("questions").select("id, image_url, type, subject, chapter, is_shared, created_at").eq("owner_id", user.id).eq("folder_id", folderId).order("created_at", { ascending: false });
   if (subject) qQuery = qQuery.eq("subject", subject);
@@ -249,18 +252,25 @@ function SubFolderCard({ folder, onDelete }: { folder: FolderRow; onDelete: (id:
     { type: "sep" as const },
     { type: "action" as const, label: "Delete folder", icon: <IconTrash size={14} />, danger: true, onClick: () => onDelete(folder.id) },
   ];
+
+  function meta() {
+    const parts: string[] = [];
+    if (folder.question_count > 0) parts.push(`${folder.question_count} question${folder.question_count === 1 ? "" : "s"}`);
+    if (folder.subfolder_count > 0) parts.push(`${folder.subfolder_count} sub-folder${folder.subfolder_count === 1 ? "" : "s"}`);
+    return parts.length > 0 ? parts.join(" · ") : "Empty";
+  }
+
   return (
     <>
-      <div className="folder-card card card-hover" style={{ position: "relative" }}>
-        <div className="folder-card-tab" style={{ background: "var(--c-brand-400)" }} />
-        <Link to={`/library/folders/${folder.id}`} className="folder-card-body" style={{ textDecoration: "none", display: "block" }}>
-          <div className="folder-card-top">
-            <div className="folder-icon"><IconFolder size={20} /></div>
+      <div className="list-row">
+        <Link to={`/library/folders/${folder.id}`} className="list-row-left" style={{ textDecoration: "none", flex: 1, minWidth: 0 }}>
+          <div className="list-row-icon"><IconFolder size={15} /></div>
+          <div className="list-row-text">
+            <span className="list-row-title">{folder.name}</span>
+            <span className="list-row-meta">{meta()}</span>
           </div>
-          <p className="folder-card-name">{folder.name}</p>
-          <div className="folder-card-meta"><span className="folder-count">{folder.question_count === 0 ? "Empty" : `${folder.question_count} question${folder.question_count === 1 ? "" : "s"}`}</span></div>
         </Link>
-        <div style={{ position: "absolute", top: 14, right: 12 }} onClick={(e) => e.stopPropagation()}>
+        <div className="list-row-right">
           <DotMenu items={menuItems} />
         </div>
       </div>
@@ -370,7 +380,7 @@ export default function FolderView({ loaderData }: Route.ComponentProps) {
           {subFolders.length > 0 && (
             <section style={{ marginBottom: 32 }}>
               <p className="pg-section-label">Sub-folders</p>
-              <div className="folder-grid">
+              <div className="list-view">
                 {subFolders.map((sf) => <SubFolderCard key={sf.id} folder={sf} onDelete={handleDeleteSubFolder} />)}
               </div>
             </section>

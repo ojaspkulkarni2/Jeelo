@@ -292,7 +292,7 @@ export default function TestGeneratePage({ loaderData, actionData }: Route.Compo
                 <IconFlash size={22} style={{ display: "inline", marginRight: 8, verticalAlign: "middle", color: "var(--c-brand-500)" }} />
                 Generate a Test
               </h1>
-              <p className="pg-subtitle">
+              <p className="pg-subtitle" style={{ marginBottom: 24 }}>
                 Pick chapters and question types — we'll randomly select from your question bank.
               </p>
             </div>
@@ -418,7 +418,6 @@ export default function TestGeneratePage({ loaderData, actionData }: Route.Compo
                         background: "var(--c-surface)",
                         border: "1px solid var(--c-border)",
                         borderRadius: "var(--r-lg)",
-                        overflow: "hidden",
                       }}
                     >
                       {/* Section header */}

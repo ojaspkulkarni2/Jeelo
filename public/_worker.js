@@ -1,18 +1,28 @@
 import { createRequestHandler } from "@react-router/cloudflare";
 import * as build from "./server/index.js";
 
-const handler = createRequestHandler({ build, mode: "production" });
+const handleRequest = createRequestHandler({ build, mode: "production" });
 
 export default {
   async fetch(request, env, ctx) {
-    // Try static assets first (covers /assets/*, *.png, *.ico, etc.)
-    // If the file doesn't exist in ASSETS it returns a 404 — fall through to SSR.
+    // Serve static assets — mirrors createPagesFunctionHandler internals exactly:
+    // fetch(url, clone) → check 200-399 → wrap in new Response to avoid immutable-header issues
+    let assetResponse;
     try {
-      const assetResponse = await env.ASSETS.fetch(request);
-      if (assetResponse.status !== 404) return assetResponse;
-    } catch {}
+      assetResponse = await env.ASSETS.fetch(request.url, request.clone());
+      assetResponse =
+        assetResponse.status >= 200 && assetResponse.status < 400
+          ? new Response(assetResponse.body, assetResponse)
+          : undefined;
+    } catch {
+      assetResponse = undefined;
+    }
 
-    return handler({
+    if (assetResponse) return assetResponse;
+
+    // createRequestHandler expects a flat cloudflare context object —
+    // it reshapes this internally into context.cloudflare.env / .ctx for your loaders
+    return handleRequest({
       request,
       env,
       waitUntil: ctx.waitUntil.bind(ctx),

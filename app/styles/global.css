@@ -882,8 +882,8 @@ html.dark .land-hero-eyebrow {
   content: '';
   position: absolute;
   top: 22px;
-  left: calc(16.66% + 20px);
-  right: calc(16.66% + 20px);
+  left: 46px;
+  right: calc(33.33% - 46px);
   height: 1.5px;
   background: linear-gradient(90deg, var(--c-brand-400), var(--c-brand-300), var(--c-brand-400));
   opacity: 0.4;
