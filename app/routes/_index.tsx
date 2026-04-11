@@ -257,8 +257,8 @@ export default function LandingPage() {
       </section>
 
       {/* Redo Missed spotlight */}
-      <section style={{ padding: "80px 60px" }}>
-        <div style={{ maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 72, alignItems: "center" }}>
+      <section className="land-spotlight">
+        <div className="land-spotlight-grid">
           <div style={{ animation: "fade-up 0.6s cubic-bezier(0.16,1,0.3,1) both" }}>
             <p className="land-section-label" style={{ marginBottom: 12 }}>The core feature</p>
             <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 3vw, 40px)", letterSpacing: "-0.03em", color: "var(--c-text)", lineHeight: 1.15, marginBottom: 18 }}>

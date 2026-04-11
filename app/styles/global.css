@@ -955,12 +955,179 @@ html.dark .land-hero-eyebrow {
   color: var(--c-text-3);
 }
 
+.land-spotlight {
+  padding: 80px 60px;
+}
+
+.land-spotlight-grid {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: center;
+}
+
+.land-mascot {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  display: block;
+}
+
 @media (max-width: 900px) {
-  .land-hero { grid-template-columns: 1fr; padding: 48px 28px; gap: 40px; }
-  .land-feat-grid, .land-steps { grid-template-columns: 1fr; }
+  .land-hero { 
+    grid-template-columns: 1fr; 
+    padding: 48px 28px; 
+    gap: 40px; 
+  }
+  
+  .land-mascot {
+    max-width: 240px;
+    width: 100%;
+    height: auto;
+    margin: 0 auto;
+    display: block;
+  }
+  
+  .land-spotlight {
+    padding: 48px 28px;
+  }
+  
+  .land-spotlight-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  
+  .land-hero-h1 {
+    font-size: clamp(32px, 8vw, 48px);
+  }
+  
+  .land-hero-body {
+    font-size: 15px;
+    max-width: 100%;
+  }
+  
+  .land-hero-ctas {
+    justify-content: flex-start;
+  }
+  
+  .land-feat-grid, .land-steps { 
+    grid-template-columns: 1fr; 
+    gap: 16px;
+  }
+  
   .land-steps::before { display: none; }
-  .land-features, .land-how, .land-cta { padding: 52px 28px; }
-  .land-nav { padding: 16px 28px; }
+  
+  .land-step {
+    padding: 0;
+    margin-bottom: 32px;
+  }
+  
+  .land-step:last-child {
+    margin-bottom: 0;
+  }
+  
+  .land-features, .land-how, .land-cta { 
+    padding: 52px 28px; 
+  }
+  
+  .land-nav { 
+    padding: 16px 28px; 
+    flex-wrap: wrap;
+  }
+  
+  .land-nav-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  
+  .land-section-title {
+    font-size: clamp(28px, 6vw, 36px);
+    margin-bottom: 32px;
+  }
+  
+  .land-cta {
+    padding: 60px 28px;
+  }
+  
+  .land-cta-title {
+    font-size: clamp(28px, 7vw, 40px);
+  }
+  
+  .land-footer {
+    padding: 24px 28px;
+  }
+  
+  /* Ensure buttons are full width on very small screens */
+  .btn-lg {
+    width: 100%;
+    max-width: 300px;
+  }
+}
+
+/* Additional mobile optimization for very small screens */
+@media (max-width: 480px) {
+  .land-hero { 
+    padding: 32px 20px; 
+    gap: 32px;
+  }
+  
+  .land-hero-h1 {
+    font-size: clamp(28px, 9vw, 36px);
+    line-height: 1.15;
+  }
+  
+  .land-hero-body {
+    font-size: 14px;
+  }
+  
+  .land-spotlight {
+    padding: 32px 20px;
+  }
+  
+  .land-spotlight-grid {
+    gap: 32px;
+  }
+  
+  .land-features, .land-how { 
+    padding: 40px 20px; 
+  }
+  
+  .land-feat-card {
+    padding: 20px;
+  }
+  
+  .land-section-title {
+    font-size: clamp(24px, 7vw, 32px);
+  }
+  
+  .land-nav { 
+    padding: 12px 20px;
+  }
+  
+  .land-cta {
+    padding: 48px 20px;
+  }
+  
+  .land-footer {
+    padding: 20px;
+  }
+  
+  .btn {
+    font-size: 14px;
+    padding: 10px 18px;
+  }
+  
+  .btn-lg {
+    padding: 12px 24px;
+  }
+  
+  .land-hero-ctas .btn-lg {
+    width: 100%;
+  }
 }
 
 /* ── Animations ─────────────────────────────────────────────────── */

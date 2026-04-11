@@ -575,8 +575,8 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
             </>
           ) : (
             <>
-              <img src="/jeelo-jumping.png" alt="" aria-hidden="true"
-                style={{ width: 110, height: "auto", marginBottom: 8,
+              <img src="/jeelo-logo.png" alt="" aria-hidden="true"
+                style={{ width: 110, height: "auto", marginBottom: 8, display: "block", marginLeft: "auto", marginRight: "auto",
                   animation: "mascot-bounce 0.7s cubic-bezier(0.16,1,0.3,1) both" }}
                 draggable={false}
               />
@@ -1273,13 +1273,223 @@ function AnswerInput({ questionType, value, onChange, darkMode = false }: { ques
   }
   if (questionType === "numerical") {
     const numStr = value !== null && value !== undefined ? String(value) : "";
+    const [cursorPos, setCursorPos] = React.useState(numStr.length);
+    
+    function insertChar(char: string) {
+      const before = numStr.slice(0, cursorPos);
+      const after = numStr.slice(cursorPos);
+      const newStr = before + char + after;
+      onChange(newStr === "" ? null : parseFloat(newStr));
+      setCursorPos(cursorPos + 1);
+    }
+    
+    function backspace() {
+      if (cursorPos > 0) {
+        const before = numStr.slice(0, cursorPos - 1);
+        const after = numStr.slice(cursorPos);
+        const newStr = before + after;
+        onChange(newStr === "" ? null : parseFloat(newStr));
+        setCursorPos(cursorPos - 1);
+      }
+    }
+    
+    function moveCursor(direction: "left" | "right") {
+      if (direction === "left" && cursorPos > 0) {
+        setCursorPos(cursorPos - 1);
+      } else if (direction === "right" && cursorPos < numStr.length) {
+        setCursorPos(cursorPos + 1);
+      }
+    }
+    
+    function clearAll() {
+      onChange(null);
+      setCursorPos(0);
+    }
+    
+    React.useEffect(() => {
+      setCursorPos(numStr.length);
+    }, [numStr.length]);
+    
     return (
       <div style={{ marginTop: 10 }}>
-        <p style={{ fontSize: 12, color: darkMode ? "#aaa" : "#555", margin: "0 0 8px" }}>Enter numerical answer</p>
-        <input type="number" step="any" value={numStr}
-          onChange={e => onChange(e.target.value === "" ? null : parseFloat(e.target.value))}
-          placeholder="e.g. 3.14"
-          style={{ padding: "8px 12px", border: "2px solid #1a6eb5", borderRadius: 4, fontSize: 16, fontWeight: 600, color: "#1a6eb5", width: 160, background: darkMode ? "#1a2a3a" : "#eef2ff", textAlign: "center" as const }} />
+        <input 
+          readOnly 
+          value={numStr} 
+          placeholder="—" 
+          style={{ 
+            width: 160, 
+            padding: "8px 12px", 
+            border: "2px solid #1a6eb5", 
+            borderRadius: 4, 
+            fontSize: 22, 
+            fontWeight: 700, 
+            color: "#1a6eb5", 
+            textAlign: "center" as const, 
+            background: darkMode ? "#1a2a3a" : "#eef2ff", 
+            display: "block", 
+            marginBottom: 10 
+          }} 
+        />
+        <div style={{ display: "inline-block" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+            {[7, 8, 9].map(n => (
+              <button key={n} type="button" onClick={() => insertChar(String(n))} 
+                style={{ 
+                  width: 50, 
+                  height: 40, 
+                  border: "1px solid #ccc", 
+                  borderRadius: 4, 
+                  background: darkMode ? "#2a2a2a" : "#fff", 
+                  color: darkMode ? "#e0e0e0" : "#333", 
+                  cursor: "pointer", 
+                  fontSize: 16, 
+                  fontWeight: 600 
+                }}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+            {[4, 5, 6].map(n => (
+              <button key={n} type="button" onClick={() => insertChar(String(n))} 
+                style={{ 
+                  width: 50, 
+                  height: 40, 
+                  border: "1px solid #ccc", 
+                  borderRadius: 4, 
+                  background: darkMode ? "#2a2a2a" : "#fff", 
+                  color: darkMode ? "#e0e0e0" : "#333", 
+                  cursor: "pointer", 
+                  fontSize: 16, 
+                  fontWeight: 600 
+                }}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+            {[1, 2, 3].map(n => (
+              <button key={n} type="button" onClick={() => insertChar(String(n))} 
+                style={{ 
+                  width: 50, 
+                  height: 40, 
+                  border: "1px solid #ccc", 
+                  borderRadius: 4, 
+                  background: darkMode ? "#2a2a2a" : "#fff", 
+                  color: darkMode ? "#e0e0e0" : "#333", 
+                  cursor: "pointer", 
+                  fontSize: 16, 
+                  fontWeight: 600 
+                }}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+            <button type="button" onClick={() => insertChar("0")} 
+              style={{ 
+                width: 50, 
+                height: 40, 
+                border: "1px solid #ccc", 
+                borderRadius: 4, 
+                background: darkMode ? "#2a2a2a" : "#fff", 
+                color: darkMode ? "#e0e0e0" : "#333", 
+                cursor: "pointer", 
+                fontSize: 16, 
+                fontWeight: 600 
+              }}>
+              0
+            </button>
+            <button type="button" onClick={() => insertChar(".")} 
+              style={{ 
+                width: 50, 
+                height: 40, 
+                border: "1px solid #ccc", 
+                borderRadius: 4, 
+                background: darkMode ? "#2a2a2a" : "#fff", 
+                color: darkMode ? "#e0e0e0" : "#333", 
+                cursor: "pointer", 
+                fontSize: 16, 
+                fontWeight: 600 
+              }}>
+              .
+            </button>
+            <button type="button" onClick={() => insertChar("-")} 
+              style={{ 
+                width: 50, 
+                height: 40, 
+                border: "1px solid #ccc", 
+                borderRadius: 4, 
+                background: darkMode ? "#2a2a2a" : "#fff", 
+                color: darkMode ? "#e0e0e0" : "#333", 
+                cursor: "pointer", 
+                fontSize: 16, 
+                fontWeight: 600 
+              }}>
+              -
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+            <button type="button" onClick={() => moveCursor("left")} 
+              style={{ 
+                width: 50, 
+                height: 40, 
+                border: "1px solid #ccc", 
+                borderRadius: 4, 
+                background: darkMode ? "#2a2a2a" : "#fff", 
+                color: darkMode ? "#e0e0e0" : "#333", 
+                cursor: "pointer", 
+                fontSize: 14, 
+                fontWeight: 600 
+              }}>
+              Left
+            </button>
+            <button type="button" onClick={() => moveCursor("right")} 
+              style={{ 
+                width: 50, 
+                height: 40, 
+                border: "1px solid #ccc", 
+                borderRadius: 4, 
+                background: darkMode ? "#2a2a2a" : "#fff", 
+                color: darkMode ? "#e0e0e0" : "#333", 
+                cursor: "pointer", 
+                fontSize: 14, 
+                fontWeight: 600 
+              }}>
+              Right
+            </button>
+            <button type="button" onClick={backspace} 
+              style={{ 
+                width: 50, 
+                height: 40, 
+                border: "1px solid #ccc", 
+                borderRadius: 4, 
+                background: darkMode ? "#2a2a2a" : "#fff", 
+                color: darkMode ? "#e0e0e0" : "#333", 
+                cursor: "pointer", 
+                fontSize: 12, 
+                fontWeight: 600 
+              }}>
+              Backspace
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
+            <button type="button" onClick={clearAll} 
+              style={{ 
+                width: 162, 
+                height: 40, 
+                border: "1px solid #ccc", 
+                borderRadius: 4, 
+                background: darkMode ? "#2a2a2a" : "#fff", 
+                color: darkMode ? "#e0e0e0" : "#333", 
+                cursor: "pointer", 
+                fontSize: 14, 
+                fontWeight: 600 
+              }}>
+              Clear All
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1342,19 +1552,19 @@ const navArrowBtn: React.CSSProperties = {
 };
 const btnMarkReview: React.CSSProperties = {
   background: JEE_BLUE, color: "#fff", border: "none",
-  borderRadius: 4, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  borderRadius: 4, padding: "12px 24px", fontSize: 15, fontWeight: 600, cursor: "pointer",
 };
 const btnClear: React.CSSProperties = {
   background: "#fff", color: "#333", border: "1px solid #bbb",
-  borderRadius: 4, padding: "7px 14px", fontSize: 13, cursor: "pointer",
+  borderRadius: 4, padding: "11px 22px", fontSize: 15, cursor: "pointer",
 };
 const btnSaveNext: React.CSSProperties = {
   background: "#1a6eb5", color: "#fff", border: "none",
-  borderRadius: 4, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  borderRadius: 4, padding: "12px 28px", fontSize: 15, fontWeight: 600, cursor: "pointer",
 };
 const btnSubmit: React.CSSProperties = {
   background: "#1a6eb5", color: "#fff", border: "2px solid #fff",
-  borderRadius: 4, padding: "6px 22px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  borderRadius: 4, padding: "10px 30px", fontSize: 15, fontWeight: 600, cursor: "pointer",
 };
 const numpadBtn: React.CSSProperties = {
   width: 40, height: 36, border: "1px solid #ccc", borderRadius: 4,
