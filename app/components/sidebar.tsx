@@ -11,6 +11,20 @@ import {
   IconSettings,
 } from "./icons";
 
+function MobileNav({ pathname }: { pathname: string }) {
+  function isActive(to: string) {
+    return pathname === to || pathname.startsWith(to + "/");
+  }
+  return (
+    <nav className="mobile-nav" aria-label="Mobile navigation">
+      <Link to="/library"   className={`mobile-nav-item${isActive("/library")   ? " active" : ""}`} aria-label="Library"><IconLibrary size={22} /></Link>
+      <Link to="/all-tests" className={`mobile-nav-item${isActive("/all-tests") ? " active" : ""}`} aria-label="Discover"><IconDiscover size={22} /></Link>
+      <Link to="/tests"     className={`mobile-nav-item${isActive("/tests")     ? " active" : ""}`} aria-label="Tests"><IconLayers size={22} /></Link>
+      <Link to="/settings"  className={`mobile-nav-item${isActive("/settings")  ? " active" : ""}`} aria-label="Settings"><IconSettings size={22} /></Link>
+    </nav>
+  );
+}
+
 interface SidebarProps {
   displayName: string;
 }
@@ -47,48 +61,52 @@ export function Sidebar({ displayName }: SidebarProps) {
   }
 
   return (
-    <aside className="sidebar">
-      <Link to="/library" className="sb-logo">Jeelo</Link>
+    <>
+      <aside className="sidebar">
+        <Link to="/library" className="sb-logo">Jeelo</Link>
 
-      <nav className="sb-nav">
-        <Link to="/library" className={`sb-link${isActive("/library") ? " active" : ""}`}>
-          <IconLibrary />
-          Library
-        </Link>
+        <nav className="sb-nav">
+          <Link to="/library" className={`sb-link${isActive("/library") ? " active" : ""}`}>
+            <IconLibrary />
+            Library
+          </Link>
 
-        <Link to="/all-tests" className={`sb-link${isActive("/all-tests") ? " active" : ""}`}>
-          <IconDiscover />
-          Discover
-        </Link>
+          <Link to="/all-tests" className={`sb-link${isActive("/all-tests") ? " active" : ""}`}>
+            <IconDiscover />
+            Discover
+          </Link>
 
-        <Link to="/tests" className={`sb-link${isActive("/tests") ? " active" : ""}`}>
-          <IconLayers />
-          My Tests
-        </Link>
+          <Link to="/tests" className={`sb-link${isActive("/tests") ? " active" : ""}`}>
+            <IconLayers />
+            My Tests
+          </Link>
 
-        <Link to="/settings" className={`sb-link${isActive("/settings") ? " active" : ""}`}>
-          <IconSettings />
-          Settings
-        </Link>
-      </nav>
+          <Link to="/settings" className={`sb-link${isActive("/settings") ? " active" : ""}`}>
+            <IconSettings />
+            Settings
+          </Link>
+        </nav>
 
-      <hr className="sb-divider" />
-      <div className="sb-bottom">
-        <div className="sb-user">
-          <IconUser size={15} />
-          <span className="sb-user-name">{displayName}</span>
-          <button type="button" className="sb-btn-icon sb-theme-toggle" onClick={toggle} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}>
-            {dark ? <IconSun size={15} /> : <IconMoon size={15} />}
-          </button>
+        <hr className="sb-divider" />
+        <div className="sb-bottom">
+          <div className="sb-user">
+            <IconUser size={15} />
+            <span className="sb-user-name">{displayName}</span>
+            <button type="button" className="sb-btn-icon sb-theme-toggle" onClick={toggle} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}>
+              {dark ? <IconSun size={15} /> : <IconMoon size={15} />}
+            </button>
+          </div>
+
+          <Form method="post" action="/logout" style={{ display: "contents" }}>
+            <button type="submit" className="sb-btn signout">
+              <IconSignOut size={16} />
+              Sign out
+            </button>
+          </Form>
         </div>
+      </aside>
 
-        <Form method="post" action="/logout" style={{ display: "contents" }}>
-          <button type="submit" className="sb-btn signout">
-            <IconSignOut size={16} />
-            Sign out
-          </button>
-        </Form>
-      </div>
-    </aside>
+      <MobileNav pathname={pathname} />
+    </>
   );
 }

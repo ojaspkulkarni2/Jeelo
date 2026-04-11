@@ -845,3 +845,137 @@ select:focus {
   70%  { transform: scale(1.08) translateY(-6px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE  (≤ 640px) — desktop styles are NEVER overridden above
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+  /* ── Sidebar: hide on mobile ─────────────────────────────── */
+  .sidebar { display: none; }
+
+  /* ── App shell ───────────────────────────────────────────── */
+  .app-main {
+    margin-left: 0;
+    padding-bottom: 68px; /* room for bottom nav */
+  }
+
+  /* ── Bottom tab navigation ───────────────────────────────── */
+  .mobile-nav {
+    display: flex;
+  }
+
+  /* ── Page head ───────────────────────────────────────────── */
+  .pg-head {
+    padding: 20px 18px 0;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .pg-title { font-size: 24px; }
+
+  .pg-body {
+    padding: 16px 18px 36px;
+  }
+
+  /* ── Subject filter tabs (Discover) ─────────────────────── */
+  .subject-tabs-row {
+    padding: 0 18px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .subject-tabs-row::-webkit-scrollbar { display: none; }
+
+  /* ── List rows ───────────────────────────────────────────── */
+  .list-row { padding: 11px 14px; gap: 10px; }
+
+  /* Hide status badges on mobile — too cramped */
+  .list-status-badge { display: none; }
+
+  /* Title can wrap on small screens */
+  .list-row-title { white-space: normal; }
+
+  /* ── Page head action buttons ────────────────────────────── */
+  .pg-head > div:last-child {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* ── Modals → full-screen bottom sheets ─────────────────── */
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-box {
+    max-width: 100%;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    border-bottom: none;
+    /* slide up animation */
+    animation: mobile-sheet-up 0.28s cubic-bezier(0.16,1,0.3,1) both;
+  }
+
+  .create-test-modal { max-width: 100%; }
+
+  /* ── Chain cards ─────────────────────────────────────────── */
+  .chain-grid { grid-template-columns: 1fr; gap: 14px; }
+
+  /* ── Result/review layouts ───────────────────────────────── */
+  .review-layout { grid-template-columns: 1fr; }
+  .review-nav { position: static; max-height: none; }
+
+  /* ── Folder grid ─────────────────────────────────────────── */
+  .folder-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  /* ── ro (result overview) hero ───────────────────────────── */
+  .ro-hero { flex-direction: column; align-items: flex-start; padding: 20px; }
+  .ro-stats-row { flex-wrap: wrap; }
+  .ro-stat-big { flex: 1 1 calc(33% - 1px); min-width: 70px; }
+  .ro-layer-cta { flex-direction: column; }
+  .ro-layer-cta-btn { width: 100%; justify-content: center; }
+}
+
+/* ── Bottom nav (always hidden on desktop) ───────────────────── */
+.mobile-nav {
+  display: none; /* hidden by default; shown inside the 640px query above */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 58px;
+  background: var(--c-sb-bg);
+  border-top: 1px solid var(--c-sb-border);
+  z-index: 200;
+  align-items: stretch;
+}
+
+.mobile-nav-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: var(--c-sb-text);
+  opacity: 0.45;
+  transition: opacity var(--t), color var(--t);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mobile-nav-item.active {
+  color: var(--c-brand-400);
+  opacity: 1;
+}
+
+.mobile-nav-item svg { flex-shrink: 0; }
+
+/* Sheet slide-up animation */
+@keyframes mobile-sheet-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}

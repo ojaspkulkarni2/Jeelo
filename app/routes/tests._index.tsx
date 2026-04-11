@@ -5,7 +5,7 @@ import { requireUser } from "~/lib/auth.server";
 import { createServerClient } from "~/lib/supabase.server";
 import { Sidebar } from "~/components/sidebar";
 import { DotMenu } from "~/components/three-dot-menu";
-import { IconLayers, IconPlus, IconPlay, IconTests, IconTrash, IconX, IconFlash } from "~/components/icons";
+import { IconLayers, IconPlus, IconPlay, IconTests, IconTrash, IconX, IconFlash, IconCheck } from "~/components/icons";
 
 type TestSummary = {
   id: string; title: string; duration_mins: number;
@@ -209,7 +209,7 @@ function NewTestModal({ onClose, error }: { onClose: () => void; error?: string 
                 return (
                   <label key={v} className="create-test-duration-chip" title={meta.hint}>
                     <input type="radio" name="visibility" value={v} defaultChecked={v === "public"} style={{ display: "none" }} />
-                    <span>{meta.icon} {meta.label}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}><VisibilityIcon icon={meta.icon} /> {meta.label}</span>
                   </label>
                 );
               })}
@@ -238,41 +238,159 @@ function ScoreBadge({ total, max }: { total: number; max: number }) {
   );
 }
 
-// ── LayerRow ───────────────────────────────────────────────────
+// ── ChainCard ──────────────────────────────────────────────────
+// The "Layered Test Chain" card — shown for any test that has layers.
 
-function LayerRow({ layer }: { layer: TestSummary }) {
+function ChainCard({ test: t }: { test: TestSummary }) {
   const fetcher = useFetcher();
-  const layerMatch = layer.title.match(/\[Layer (\d+)\]/);
-  const layerNum = layerMatch ? parseInt(layerMatch[1]) : "?";
-  const hrs = Math.floor(layer.duration_mins / 60);
-  const mins = layer.duration_mins % 60;
-  const durationStr = hrs > 0 ? `${hrs}h ${mins > 0 ? `${mins}m` : ""}`.trim() : `${mins}m`;
+  const navigate = useNavigate();
+
+  const displayTitle = t.title.replace(/\s*\[Layer \d+\]/, "").trim();
+  const allLayers = [t, ...t.layers];
+  const totalLayers = allLayers.length;
+  const activeIndex = allLayers.findIndex((l) => !l.submitted);
+  const completedCount = activeIndex === -1 ? totalLayers : activeIndex;
+
+  const rowLabel = (layer: TestSummary, idx: number) => {
+    if (idx === 0) return displayTitle;
+    const m = layer.title.match(/\[Layer (\d+)\]/);
+    const n = m ? parseInt(m[1]) : idx + 1;
+    return `Layer ${n} · ${idx === 1 ? "Missed Qs" : "Still Wrong"}`;
+  };
+
+  const rowSublabel = (layer: TestSummary, idx: number) => {
+    if (idx === 0) return `${layer.question_count} question${layer.question_count !== 1 ? "s" : ""} · original test`;
+    if (idx === 1) return `${layer.question_count} question${layer.question_count !== 1 ? "s" : ""} · built from mistakes`;
+    return `${layer.question_count} question${layer.question_count !== 1 ? "s" : ""} · the stubborn ones`;
+  };
+
+  const progressText = completedCount === totalLayers
+    ? "All layers done! 🎉"
+    : `Layer ${completedCount + 1} of ${totalLayers} — ${completedCount === totalLayers - 1 ? "almost there" : "keep going"}`;
+
+  const menuItems = [
+    { type: "action" as const, label: "Edit test", icon: <IconTests size={14} />, onClick: () => navigate(`/tests/${t.id}`) },
+    { type: "sep" as const },
+    {
+      type: "action" as const, label: "Delete chain", icon: <IconTrash size={14} />, danger: true,
+      onClick: () => {
+        if (!confirm(`Delete "${displayTitle}" and all its layers?`)) return;
+        // Delete base test — cascade will handle layers
+        const fd = new FormData(); fd.set("intent", "delete_test"); fd.set("id", t.id);
+        fetcher.submit(fd, { method: "post" });
+      },
+    },
+  ];
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px 9px 44px", borderTop: "1px solid var(--c-border-subtle)", background: "var(--c-surface-2)" }}>
-      <span className="chain-layer-badge" style={{ margin: 0, flexShrink: 0 }}>Layer {layerNum}</span>
-      <span style={{ fontSize: 13, color: "var(--c-text-2)", flex: 1 }}>
-        {durationStr} · {layer.section_count} section{layer.section_count !== 1 ? "s" : ""} · {layer.question_count} Q
-      </span>
-      {layer.submitted && layer.score_total !== null && layer.score_max !== null && (
-        <ScoreBadge total={layer.score_total} max={layer.score_max} />
-      )}
-      {layer.submitted ? (
-        <Link to={`/tests/${layer.id}/result`} className="btn btn-ghost btn-sm" style={{ fontSize: 12, padding: "4px 10px" }}>View Result</Link>
-      ) : layer.is_published ? (
-        <Link to={`/tests/${layer.id}/preview`} className="btn btn-ghost btn-sm" style={{ fontSize: 12, padding: "4px 10px" }}>
-          <IconPlay size={11} /> {layer.in_progress ? "Resume" : "Take"}
-        </Link>
-      ) : null}
-      <Form method="post" style={{ display: "contents" }}>
-        <input type="hidden" name="intent" value="delete_test" />
-        <input type="hidden" name="id" value={layer.id} />
-        <button type="submit" title="Delete layer"
-          onClick={(e) => { if (!confirm(`Delete Layer ${layerNum}?`)) e.preventDefault(); }}
-          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--c-text-3)", padding: "2px 4px" }}>
-          <IconTrash size={13} />
-        </button>
-      </Form>
+    <div className="chain-card">
+      {/* Ghost stacked cards behind */}
+      <div className="chain-stack" aria-hidden="true">
+        <div className="chain-ghost chain-ghost-3" />
+        <div className="chain-ghost chain-ghost-2" />
+      </div>
+
+      <div className="chain-body">
+        {/* Header */}
+        <div className="chain-header">
+          <div className="chain-header-left">
+            <div className="chain-layer-badge"><IconLayers size={12} /> Layered Test Chain</div>
+            <div className="chain-title">{displayTitle}</div>
+          </div>
+          <span onClick={(e) => e.stopPropagation()}>
+            <DotMenu items={menuItems} />
+          </span>
+        </div>
+
+        {/* Progress dots */}
+        <div className="chain-dots">
+          {allLayers.map((l, i) => (
+            <div key={i} className="chain-dot" style={{
+              width: l.submitted ? 18 : 6,
+              background: l.submitted ? "var(--c-brand-500)" : "var(--c-border-strong)",
+            }} />
+          ))}
+        </div>
+
+        {/* Layer rows */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          {allLayers.map((layer, i) => {
+            const isDone = layer.submitted;
+            const isActive = i === activeIndex;
+
+            return (
+              <div key={layer.id} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "9px 12px",
+                marginLeft: -12, marginRight: -12,
+                background: isActive ? "rgba(215,118,86,0.06)" : undefined,
+                borderLeft: isActive ? "2px solid var(--c-brand-400)" : "2px solid transparent",
+                borderTop: i > 0 ? "1px solid var(--c-border-subtle)" : undefined,
+              }}>
+                {/* Circle badge */}
+                <div style={{
+                  width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                  background: isDone ? "var(--c-brand-500)" : "var(--c-brand-100)",
+                  border: isDone ? "none" : "1.5px dashed var(--c-brand-400)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: isDone ? "#fff" : "var(--c-brand-500)",
+                  fontSize: 11, fontWeight: 700,
+                }}>
+                  {isDone ? <IconCheck size={12} strokeWidth={2.5} /> : i + 1}
+                </div>
+
+                {/* Label */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--c-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {rowLabel(layer, i)}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--c-text-3)", marginTop: 1 }}>
+                    {rowSublabel(layer, i)}
+                  </div>
+                </div>
+
+                {/* Right action */}
+                {isDone && layer.score_total !== null && layer.score_max !== null ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--c-text-2)" }}>
+                      {layer.score_total} / {layer.score_max}
+                    </span>
+                    <Link to={`/tests/${layer.id}/result`} style={{ fontSize: 10.5, color: "var(--c-brand-500)", textDecoration: "none" }}>
+                      View result →
+                    </Link>
+                  </div>
+                ) : isDone ? (
+                  <Link to={`/tests/${layer.id}/result`} className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "3px 8px", flexShrink: 0 }}>
+                    Result
+                  </Link>
+                ) : isActive && layer.is_published ? (
+                  <Link
+                    to={`/tests/${layer.id}/preview`}
+                    style={{
+                      background: "var(--c-brand-500)", color: "#fff",
+                      borderRadius: 6, padding: "5px 12px",
+                      fontSize: 11, fontWeight: 700, flexShrink: 0,
+                      display: "flex", alignItems: "center", gap: 4,
+                      textDecoration: "none",
+                    }}
+                  >
+                    <IconPlay size={9} /> {layer.in_progress ? "Resume" : "Take"}
+                  </Link>
+                ) : !layer.is_published ? (
+                  <Link to={`/tests/${layer.id}`} className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: "3px 8px", flexShrink: 0 }}>
+                    Edit
+                  </Link>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="chain-footer">
+          <span style={{ flex: 1, fontSize: 11, color: "var(--c-text-3)" }}>{progressText}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -304,7 +422,6 @@ function VisibilityIcon({ icon }: { icon: string }) {
 function TestCard({ test: t }: { test: TestSummary }) {
   const fetcher = useFetcher();
   const navigate = useNavigate();
-  const [layersOpen, setLayersOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
   function handleCopyLink() {
@@ -334,24 +451,13 @@ function TestCard({ test: t }: { test: TestSummary }) {
     fetcher.submit(fd, { method: "post" });
   }
 
-  const layerMatch = t.title.match(/\[Layer (\d+)\]/);
   const displayTitle = t.title.replace(/\s*\[Layer \d+\]/, "");
-  const layerNum = layerMatch ? parseInt(layerMatch[1]) : null;
-  const hasLayers = t.layers.length > 0;
-
   const visibilityMeta = VISIBILITY_LABELS[t.visibility] ?? VISIBILITY_LABELS.public;
 
-  // Build visibility menu items - only show options that aren't the current state
   const visibilityItems = [];
-  if (t.visibility !== "public") {
-    visibilityItems.push({ type: "action" as const, label: "Make Public", onClick: () => handleSetVisibility("public") });
-  }
-  if (t.visibility !== "invite_only") {
-    visibilityItems.push({ type: "action" as const, label: "Make Invite only", onClick: () => handleSetVisibility("invite_only") });
-  }
-  if (t.visibility !== "private") {
-    visibilityItems.push({ type: "action" as const, label: "Make Private", onClick: () => handleSetVisibility("private") });
-  }
+  if (t.visibility !== "public")      visibilityItems.push({ type: "action" as const, label: "Make Public",       onClick: () => handleSetVisibility("public") });
+  if (t.visibility !== "invite_only") visibilityItems.push({ type: "action" as const, label: "Make Invite only",  onClick: () => handleSetVisibility("invite_only") });
+  if (t.visibility !== "private")     visibilityItems.push({ type: "action" as const, label: "Make Private",      onClick: () => handleSetVisibility("private") });
 
   const menuItems = [
     { type: "action" as const, label: "Edit test", icon: <IconTests size={14} />, onClick: () => { navigate(`/tests/${t.id}`); } },
@@ -370,42 +476,17 @@ function TestCard({ test: t }: { test: TestSummary }) {
     },
   ];
 
-  // Where the card click navigates
   const rowDestination = isPublished
     ? (t.submitted ? `/tests/${t.id}/result` : `/tests/${t.id}/preview`)
     : `/tests/${t.id}`;
 
   return (
     <div className="list-row" style={{ flexDirection: "column", alignItems: "stretch", padding: 0, gap: 0 }}>
-      {/* Clickable card row — use div+navigate so inner buttons can stopPropagation cleanly */}
-      <div
-        onClick={() => navigate(rowDestination)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "14px 16px",
-          cursor: "pointer",
-        }}
-      >
+      <div onClick={() => navigate(rowDestination)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", cursor: "pointer" }}>
         <div className="list-row-left" style={{ flex: 1, minWidth: 0 }}>
-          <div className="list-row-icon">
-            {hasLayers ? <IconLayers size={15} /> : <IconTests size={15} />}
-          </div>
+          <div className="list-row-icon"><IconTests size={15} /></div>
           <div className="list-row-text">
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              {layerNum && <span className="chain-layer-badge" style={{ marginBottom: 0 }}>Layer {layerNum}</span>}
-              <span className="list-row-title">{displayTitle}</span>
-              {hasLayers && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setLayersOpen(v => !v); }}
-                  style={{ background: "var(--c-surface-2)", border: "none", borderRadius: 10, padding: "1px 8px", fontSize: 11, fontWeight: 600, color: "var(--c-brand-500)", cursor: "pointer" }}
-                >
-                  {t.layers.length} layer{t.layers.length !== 1 ? "s" : ""} {layersOpen ? "▲" : "▼"}
-                </button>
-              )}
-            </div>
+            <span className="list-row-title">{displayTitle}</span>
             <span className="list-row-meta">
               {durationStr} · {t.section_count} section{t.section_count !== 1 ? "s" : ""} · {t.question_count} question{t.question_count !== 1 ? "s" : ""}
             </span>
@@ -419,16 +500,11 @@ function TestCard({ test: t }: { test: TestSummary }) {
             <span className="list-status-badge draft">Draft</span>
           ) : (
             <>
-              <span className={`list-status-badge ${t.visibility === 'public' ? 'published' : t.visibility === 'private' ? 'private' : 'invite'}`}>
+              <span className={`list-status-badge ${t.visibility === "public" ? "published" : t.visibility === "private" ? "private" : "invite"}`}>
                 {visibilityMeta.label}
               </span>
-              {t.visibility === 'invite_only' && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); handleCopyLink(); }}
-                  className="btn btn-ghost btn-sm"
-                  style={{ fontSize: 12 }}
-                >
+              {t.visibility === "invite_only" && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); handleCopyLink(); }} className="btn btn-ghost btn-sm" style={{ fontSize: 12 }}>
                   {linkCopied ? "✓ Copied!" : "Copy link"}
                 </button>
               )}
@@ -436,38 +512,18 @@ function TestCard({ test: t }: { test: TestSummary }) {
           )}
           {isPublished ? (
             t.submitted ? (
-              <Link
-                to={`/tests/${t.id}/result`}
-                className="btn btn-ghost btn-sm"
-                onClick={(e) => e.stopPropagation()}
-              >
-                View Result
-              </Link>
+              <Link to={`/tests/${t.id}/result`} className="btn btn-ghost btn-sm" onClick={(e) => e.stopPropagation()}>View Result</Link>
             ) : (
-              <Link
-                to={`/tests/${t.id}/preview`}
-                className="btn btn-primary btn-sm"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <Link to={`/tests/${t.id}/preview`} className="btn btn-primary btn-sm" onClick={(e) => e.stopPropagation()}>
                 <IconPlay size={12} /> {t.in_progress ? "Resume" : "Take test"}
               </Link>
             )
           ) : (
-            <Link
-              to={`/tests/${t.id}`}
-              className="btn btn-ghost btn-sm"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Edit
-            </Link>
+            <Link to={`/tests/${t.id}`} className="btn btn-ghost btn-sm" onClick={(e) => e.stopPropagation()}>Edit</Link>
           )}
-          {/* Wrap DotMenu to stop card navigation firing when the menu is opened */}
-          <span onClick={(e) => e.stopPropagation()}>
-            <DotMenu items={menuItems} />
-          </span>
+          <span onClick={(e) => e.stopPropagation()}><DotMenu items={menuItems} /></span>
         </div>
       </div>
-      {hasLayers && layersOpen && t.layers.map(layer => <LayerRow key={layer.id} layer={layer} />)}
     </div>
   );
 }
@@ -507,6 +563,29 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
   const unattempted = tests.filter((t) => !t.submitted);
   const attempted   = tests.filter((t) => t.submitted);
 
+  // Split each group into layered (has layers) vs standalone
+  const unattemptedChains     = unattempted.filter((t) => t.layers.length > 0);
+  const unattemptedStandalone = unattempted.filter((t) => t.layers.length === 0);
+  const attemptedChains       = attempted.filter((t) => t.layers.length > 0);
+  const attemptedStandalone   = attempted.filter((t) => t.layers.length === 0);
+
+  function renderSection(chains: TestSummary[], standalones: TestSummary[]) {
+    return (
+      <>
+        {chains.length > 0 && (
+          <div className="chain-grid" style={{ marginBottom: standalones.length > 0 ? 20 : 0 }}>
+            {chains.map((t) => <ChainCard key={t.id} test={t} />)}
+          </div>
+        )}
+        {standalones.length > 0 && (
+          <div className="list-view">
+            {standalones.map((t) => <TestCard key={t.id} test={t} />)}
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="app-layout">
       <Sidebar displayName={user.display_name} />
@@ -537,7 +616,6 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
                 <p className="lib-empty-body">Create your first test. Every wrong answer automatically becomes the next layer.</p>
                 <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                   <button className="btn btn-primary" onClick={() => setShowCreate(true)}><IconPlus size={15} /> Create a test</button>
-
                 </div>
               </div>
               <LayeredExplainer />
@@ -547,19 +625,15 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
               {unattempted.length > 0 && (
                 <section className="tests-section">
                   {attempted.length > 0 && (
-                    <h2 className="tests-section-title" style={{ marginBottom: 10, marginTop: 0 }}>Unattempted</h2>
+                    <h2 className="tests-section-title" style={{ marginBottom: 12, marginTop: 0 }}>Unattempted</h2>
                   )}
-                  <div className="list-view">
-                    {unattempted.map((t) => <TestCard key={t.id} test={t} />)}
-                  </div>
+                  {renderSection(unattemptedChains, unattemptedStandalone)}
                 </section>
               )}
               {attempted.length > 0 && (
-                <section className="tests-section" style={{ marginTop: unattempted.length > 0 ? 28 : 0 }}>
-                  <h2 className="tests-section-title" style={{ marginBottom: 10 }}>Attempted</h2>
-                  <div className="list-view">
-                    {attempted.map((t) => <TestCard key={t.id} test={t} />)}
-                  </div>
+                <section className="tests-section" style={{ marginTop: unattempted.length > 0 ? 32 : 0 }}>
+                  <h2 className="tests-section-title" style={{ marginBottom: 12 }}>Attempted</h2>
+                  {renderSection(attemptedChains, attemptedStandalone)}
                 </section>
               )}
               <LayeredExplainer />
