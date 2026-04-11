@@ -576,7 +576,7 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
           ) : (
             <>
               <img src="/jeelo-logo.png" alt="" aria-hidden="true"
-                style={{ width: 110, height: "auto", marginBottom: 8, display: "block", marginLeft: "auto", marginRight: "auto",
+                style={{ width: 260, height: "auto", marginBottom: 20, display: "block", marginLeft: "auto", marginRight: "auto",
                   animation: "mascot-bounce 0.7s cubic-bezier(0.16,1,0.3,1) both" }}
                 draggable={false}
               />
@@ -1272,223 +1272,160 @@ function AnswerInput({ questionType, value, onChange, darkMode = false }: { ques
     );
   }
   if (questionType === "numerical") {
-    const numStr = value !== null && value !== undefined ? String(value) : "";
-    const [cursorPos, setCursorPos] = React.useState(numStr.length);
-    
+    const initStr = value !== null && value !== undefined ? String(value) : "";
+    const [editStr, setEditStr] = React.useState(initStr);
+    const [cursorPos, setCursorPos] = React.useState(initStr.length);
+
+    // Helper: propagate value upward. Store as string so "3.", "-", "-3." survive round-trips.
+    // The scoring layer already does parseFloat(String(given)), so a string value is safe.
+    function propagate(s: string) {
+      setEditStr(s);
+      onChange(s === "" ? null : s);
+    }
+
     function insertChar(char: string) {
-      const before = numStr.slice(0, cursorPos);
-      const after = numStr.slice(cursorPos);
+      // Prevent duplicate decimal points or misplaced minus
+      if (char === "." && editStr.includes(".")) return;
+      if (char === "-" && cursorPos !== 0) return;
+      if (char === "-" && editStr.startsWith("-")) return;
+      const before = editStr.slice(0, cursorPos);
+      const after = editStr.slice(cursorPos);
       const newStr = before + char + after;
-      onChange(newStr === "" ? null : parseFloat(newStr));
+      propagate(newStr);
       setCursorPos(cursorPos + 1);
     }
-    
+
     function backspace() {
       if (cursorPos > 0) {
-        const before = numStr.slice(0, cursorPos - 1);
-        const after = numStr.slice(cursorPos);
+        const before = editStr.slice(0, cursorPos - 1);
+        const after = editStr.slice(cursorPos);
         const newStr = before + after;
-        onChange(newStr === "" ? null : parseFloat(newStr));
+        propagate(newStr);
         setCursorPos(cursorPos - 1);
       }
     }
-    
+
     function moveCursor(direction: "left" | "right") {
       if (direction === "left" && cursorPos > 0) {
         setCursorPos(cursorPos - 1);
-      } else if (direction === "right" && cursorPos < numStr.length) {
+      } else if (direction === "right" && cursorPos < editStr.length) {
         setCursorPos(cursorPos + 1);
       }
     }
-    
+
     function clearAll() {
-      onChange(null);
+      propagate("");
       setCursorPos(0);
     }
     
-    React.useEffect(() => {
-      setCursorPos(numStr.length);
-    }, [numStr.length]);
-    
+    // ── Shared styles ──────────────────────────────────────────────
+    const KP_WIDTH  = 166;                       // total keypad width px
+    const BTN_GAP   = 4;                          // gap between buttons
+    const BTN_COL   = Math.floor((KP_WIDTH - BTN_GAP * 2) / 3); // ≈ 52px per 3-col cell
+    const BTN_H     = 34;
+    const BTN_RADIUS = 3;
+    const BTN_BORDER = `1px solid ${darkMode ? "#555" : "#bbb"}`;
+    const BTN_BG    = darkMode ? "#2a2a2a" : "#fff";
+    const BTN_COLOR = darkMode ? "#e0e0e0" : "#222";
+    const BTN_BASE: React.CSSProperties = {
+      height: BTN_H, border: BTN_BORDER, borderRadius: BTN_RADIUS,
+      background: BTN_BG, color: BTN_COLOR, cursor: "pointer",
+      fontSize: 14, fontWeight: 400, fontFamily: "inherit",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 0, boxSizing: "border-box" as const,
+    };
+
     return (
-      <div style={{ marginTop: 10 }}>
-        <input 
-          readOnly 
-          value={numStr} 
-          placeholder="—" 
-          style={{ 
-            width: 160, 
-            padding: "8px 12px", 
-            border: "2px solid #1a6eb5", 
-            borderRadius: 4, 
-            fontSize: 22, 
-            fontWeight: 700, 
-            color: "#1a6eb5", 
-            textAlign: "center" as const, 
-            background: darkMode ? "#1a2a3a" : "#eef2ff", 
-            display: "block", 
-            marginBottom: 10 
-          }} 
+      <div style={{ marginTop: 10, userSelect: "none" }}>
+        {/* ── Answer display input ── */}
+        <input
+          readOnly
+          value={editStr}
+          placeholder=""
+          style={{
+            width: KP_WIDTH,
+            height: 30,
+            padding: "0 6px",
+            border: `1px solid ${darkMode ? "#555" : "#aaa"}`,
+            borderRadius: BTN_RADIUS,
+            fontSize: 15,
+            fontWeight: 400,
+            color: BTN_COLOR,
+            background: darkMode ? "#1a1a1a" : "#fff",
+            display: "block",
+            marginBottom: BTN_GAP,
+            boxSizing: "border-box" as const,
+            outline: "none",
+          }}
         />
-        <div style={{ display: "inline-block" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+
+        {/* ── Keypad ── */}
+        <div style={{ display: "inline-flex", flexDirection: "column", gap: BTN_GAP }}>
+
+          {/* Backspace — full width */}
+          <button type="button" onClick={backspace}
+            style={{ ...BTN_BASE, width: KP_WIDTH, fontSize: 13 }}>
+            Backspace
+          </button>
+
+          {/* 7 8 9 */}
+          <div style={{ display: "flex", gap: BTN_GAP }}>
             {[7, 8, 9].map(n => (
-              <button key={n} type="button" onClick={() => insertChar(String(n))} 
-                style={{ 
-                  width: 50, 
-                  height: 40, 
-                  border: "1px solid #ccc", 
-                  borderRadius: 4, 
-                  background: darkMode ? "#2a2a2a" : "#fff", 
-                  color: darkMode ? "#e0e0e0" : "#333", 
-                  cursor: "pointer", 
-                  fontSize: 16, 
-                  fontWeight: 600 
-                }}>
+              <button key={n} type="button" onClick={() => insertChar(String(n))}
+                style={{ ...BTN_BASE, width: BTN_COL }}>
                 {n}
               </button>
             ))}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+
+          {/* 4 5 6 */}
+          <div style={{ display: "flex", gap: BTN_GAP }}>
             {[4, 5, 6].map(n => (
-              <button key={n} type="button" onClick={() => insertChar(String(n))} 
-                style={{ 
-                  width: 50, 
-                  height: 40, 
-                  border: "1px solid #ccc", 
-                  borderRadius: 4, 
-                  background: darkMode ? "#2a2a2a" : "#fff", 
-                  color: darkMode ? "#e0e0e0" : "#333", 
-                  cursor: "pointer", 
-                  fontSize: 16, 
-                  fontWeight: 600 
-                }}>
+              <button key={n} type="button" onClick={() => insertChar(String(n))}
+                style={{ ...BTN_BASE, width: BTN_COL }}>
                 {n}
               </button>
             ))}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
+
+          {/* 1 2 3 */}
+          <div style={{ display: "flex", gap: BTN_GAP }}>
             {[1, 2, 3].map(n => (
-              <button key={n} type="button" onClick={() => insertChar(String(n))} 
-                style={{ 
-                  width: 50, 
-                  height: 40, 
-                  border: "1px solid #ccc", 
-                  borderRadius: 4, 
-                  background: darkMode ? "#2a2a2a" : "#fff", 
-                  color: darkMode ? "#e0e0e0" : "#333", 
-                  cursor: "pointer", 
-                  fontSize: 16, 
-                  fontWeight: 600 
-                }}>
+              <button key={n} type="button" onClick={() => insertChar(String(n))}
+                style={{ ...BTN_BASE, width: BTN_COL }}>
                 {n}
               </button>
             ))}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
-            <button type="button" onClick={() => insertChar("0")} 
-              style={{ 
-                width: 50, 
-                height: 40, 
-                border: "1px solid #ccc", 
-                borderRadius: 4, 
-                background: darkMode ? "#2a2a2a" : "#fff", 
-                color: darkMode ? "#e0e0e0" : "#333", 
-                cursor: "pointer", 
-                fontSize: 16, 
-                fontWeight: 600 
-              }}>
-              0
-            </button>
-            <button type="button" onClick={() => insertChar(".")} 
-              style={{ 
-                width: 50, 
-                height: 40, 
-                border: "1px solid #ccc", 
-                borderRadius: 4, 
-                background: darkMode ? "#2a2a2a" : "#fff", 
-                color: darkMode ? "#e0e0e0" : "#333", 
-                cursor: "pointer", 
-                fontSize: 16, 
-                fontWeight: 600 
-              }}>
-              .
-            </button>
-            <button type="button" onClick={() => insertChar("-")} 
-              style={{ 
-                width: 50, 
-                height: 40, 
-                border: "1px solid #ccc", 
-                borderRadius: 4, 
-                background: darkMode ? "#2a2a2a" : "#fff", 
-                color: darkMode ? "#e0e0e0" : "#333", 
-                cursor: "pointer", 
-                fontSize: 16, 
-                fontWeight: 600 
-              }}>
-              -
-            </button>
+
+          {/* 0  .  - */}
+          <div style={{ display: "flex", gap: BTN_GAP }}>
+            <button type="button" onClick={() => insertChar("0")}
+              style={{ ...BTN_BASE, width: BTN_COL }}>0</button>
+            <button type="button" onClick={() => insertChar(".")}
+              style={{ ...BTN_BASE, width: BTN_COL }}>.</button>
+            <button type="button" onClick={() => insertChar("-")}
+              style={{ ...BTN_BASE, width: BTN_COL }}>-</button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 6, marginBottom: 6 }}>
-            <button type="button" onClick={() => moveCursor("left")} 
-              style={{ 
-                width: 50, 
-                height: 40, 
-                border: "1px solid #ccc", 
-                borderRadius: 4, 
-                background: darkMode ? "#2a2a2a" : "#fff", 
-                color: darkMode ? "#e0e0e0" : "#333", 
-                cursor: "pointer", 
-                fontSize: 14, 
-                fontWeight: 600 
-              }}>
+
+          {/* Left  Right — 2 equal columns */}
+          <div style={{ display: "flex", gap: BTN_GAP }}>
+            <button type="button" onClick={() => moveCursor("left")}
+              style={{ ...BTN_BASE, width: Math.floor((KP_WIDTH - BTN_GAP) / 2) }}>
               Left
             </button>
-            <button type="button" onClick={() => moveCursor("right")} 
-              style={{ 
-                width: 50, 
-                height: 40, 
-                border: "1px solid #ccc", 
-                borderRadius: 4, 
-                background: darkMode ? "#2a2a2a" : "#fff", 
-                color: darkMode ? "#e0e0e0" : "#333", 
-                cursor: "pointer", 
-                fontSize: 14, 
-                fontWeight: 600 
-              }}>
+            <button type="button" onClick={() => moveCursor("right")}
+              style={{ ...BTN_BASE, width: Math.ceil((KP_WIDTH - BTN_GAP) / 2) }}>
               Right
             </button>
-            <button type="button" onClick={backspace} 
-              style={{ 
-                width: 50, 
-                height: 40, 
-                border: "1px solid #ccc", 
-                borderRadius: 4, 
-                background: darkMode ? "#2a2a2a" : "#fff", 
-                color: darkMode ? "#e0e0e0" : "#333", 
-                cursor: "pointer", 
-                fontSize: 12, 
-                fontWeight: 600 
-              }}>
-              Backspace
-            </button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
-            <button type="button" onClick={clearAll} 
-              style={{ 
-                width: 162, 
-                height: 40, 
-                border: "1px solid #ccc", 
-                borderRadius: 4, 
-                background: darkMode ? "#2a2a2a" : "#fff", 
-                color: darkMode ? "#e0e0e0" : "#333", 
-                cursor: "pointer", 
-                fontSize: 14, 
-                fontWeight: 600 
-              }}>
-              Clear All
-            </button>
-          </div>
+
+          {/* Clear All — full width */}
+          <button type="button" onClick={clearAll}
+            style={{ ...BTN_BASE, width: KP_WIDTH, fontSize: 13 }}>
+            Clear All
+          </button>
+
         </div>
       </div>
     );
