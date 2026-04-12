@@ -405,11 +405,17 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
     if (!currentQ) return;
     const isEmpty = draftAnswer === null || (Array.isArray(draftAnswer) && draftAnswer.length === 0);
     const effectiveStatus: QuestionStatus = isEmpty ? "not_answered" : status;
-    setAnswers(prev => ({
-      ...prev,
+    const updatedAnswers = {
+      ...answers,
       [currentQ.id]: { status: effectiveStatus, ...(!isEmpty && draftAnswer !== null ? { answer: draftAnswer } : {}) },
-    }));
-    if (currentIdx < allQuestions.length - 1) setCurrentIdx(i => i + 1);
+    } as AttemptAnswers;
+    setAnswers(() => updatedAnswers);
+    if (currentIdx < allQuestions.length - 1) {
+      const nextIdx = currentIdx + 1;
+      const nextState = updatedAnswers[allQuestions[nextIdx].id];
+      setDraftAnswer(nextState?.answer !== undefined ? nextState.answer : null);
+      setCurrentIdx(nextIdx);
+    }
   }
 
   function markForReview() {
@@ -417,11 +423,17 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
     const isEmpty = draftAnswer === null || (Array.isArray(draftAnswer) && draftAnswer.length === 0);
     const hasAnswer = draftAnswer !== null && !isEmpty;
     const status: QuestionStatus = hasAnswer ? "answered_marked" : "marked";
-    setAnswers(prev => ({
-      ...prev,
+    const updatedAnswers = {
+      ...answers,
       [currentQ.id]: { status, ...(hasAnswer ? { answer: draftAnswer } : {}) },
-    }));
-    if (currentIdx < allQuestions.length - 1) setCurrentIdx(i => i + 1);
+    } as AttemptAnswers;
+    setAnswers(() => updatedAnswers);
+    if (currentIdx < allQuestions.length - 1) {
+      const nextIdx = currentIdx + 1;
+      const nextState = updatedAnswers[allQuestions[nextIdx].id];
+      setDraftAnswer(nextState?.answer !== undefined ? nextState.answer : null);
+      setCurrentIdx(nextIdx);
+    }
   }
 
   function clearResponse() {
@@ -1275,6 +1287,14 @@ function AnswerInput({ questionType, value, onChange, darkMode = false }: { ques
     const initStr = value !== null && value !== undefined ? String(value) : "";
     const [editStr, setEditStr] = React.useState(initStr);
     const [cursorPos, setCursorPos] = React.useState(initStr.length);
+
+    // Sync local editStr when the value prop changes (e.g. navigating via palette,
+    // or when draftAnswer is updated for the new question after Save & Next).
+    React.useEffect(() => {
+      const newStr = value !== null && value !== undefined ? String(value) : "";
+      setEditStr(newStr);
+      setCursorPos(newStr.length);
+    }, [value]); // eslint-disable-line
 
     // Helper: propagate value upward. Store as string so "3.", "-", "-3." survive round-trips.
     // The scoring layer already does parseFloat(String(given)), so a string value is safe.
