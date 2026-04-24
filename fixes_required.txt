@@ -1,0 +1,1 @@
+Upload failed for image 48: Too many subrequests by single Worker invocation. To configure this limit, refer to https://developers.cloudflare.com/workers/wrangler/configuration/#limits
