@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useFetcher } from "react-router";
 import type { QuestionType } from "~/lib/database.types";
 import { btnPrimary, labelStyle, inputStyle, TYPE_META } from "./styles";
 
@@ -20,13 +21,19 @@ function answerKeyHint(type: QuestionType | ""): string {
 // ── AddSectionForm ─────────────────────────────────────────────
 
 export function AddSectionForm({ testId: _ }: { testId: string }) {
+  const fetcher = useFetcher();
   const [qType, setQType] = useState<QuestionType | "">("");
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [answerKey, setAnswerKey] = useState("");
   const [isDragging, setIsDragging] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [clientError, setClientError] = useState<string | null>(null);
+  const [formKey, setFormKey] = useState(0);
+
+  const isSubmitting = fetcher.state !== 'idle';
+  const serverError = (fetcher.data as any)?.error ?? null;
+  // Don't show a stale server error while a new submission is in-flight
+  const error = isSubmitting ? clientError : (clientError ?? serverError);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addMoreRef   = useRef<HTMLInputElement>(null);
@@ -46,6 +53,24 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
     setPreviews(urls);
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
   }, [files]);
+
+  // Reset form after a successful submission
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data !== undefined) {
+      const d = fetcher.data as any;
+      if (!d?.error) {
+        setFiles([]);
+        if (fileInputRef.current) {
+          const dt = new DataTransfer();
+          fileInputRef.current.files = dt.files;
+        }
+        setAnswerKey("");
+        setQType("");
+        setClientError(null);
+        setFormKey((k) => k + 1); // forces uncontrolled inputs to reset
+      }
+    }
+  }, [fetcher.state, fetcher.data]);
 
   function syncInput(next: File[]) {
     if (!fileInputRef.current) return;
@@ -89,45 +114,29 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
     });
   }
 
+  const MAX_IMAGES = 40; // Cloudflare Workers: ~50 subrequest limit; images + 5 DB ops must stay under it
   const answerCount = countAnswerLines(answerKey);
   const countOk  = files.length > 0 && answerCount === files.length;
   const countBad = files.length > 0 && answerCount > 0 && answerCount !== files.length;
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
+    setClientError(null);
+
+    if (files.length > MAX_IMAGES) {
+      setClientError(`Max ${MAX_IMAGES} images per section — split into multiple sections if needed`);
+      return;
+    }
 
     if (files.length > 0 && !countOk) {
-      setError(
+      setClientError(
         `${answerCount} answer line${answerCount !== 1 ? "s" : ""} but ${files.length} image${files.length !== 1 ? "s" : ""} — counts must match`
       );
       return;
     }
 
-    setIsSubmitting(true);
     const fd = new FormData(e.currentTarget);
-
-    try {
-      const res = await fetch(window.location.pathname, {
-        method: "POST",
-        body: fd,
-      });
-      if (res.redirected) {
-        window.location.href = res.url;
-        return;
-      }
-      // react-router returns 204 / JSON for actions that return null
-      if (res.ok) {
-        window.location.reload();
-        return;
-      }
-      const json = await res.json().catch(() => ({}));
-      setError((json as any)?.error ?? "Something went wrong — please try again");
-      setIsSubmitting(false);
-    } catch {
-      setError("Network error — please try again");
-      setIsSubmitting(false);
-    }
+    fetcher.submit(fd, { method: "post", encType: "multipart/form-data" });
   }
 
   return (
@@ -150,6 +159,7 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
       </div>
 
       <form
+        key={formKey}
         method="post"
         encType="multipart/form-data"
         onSubmit={handleSubmit}

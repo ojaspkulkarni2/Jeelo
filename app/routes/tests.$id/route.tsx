@@ -239,6 +239,13 @@ export async function action({ params, request, context }: Route.ActionArgs) {
       return { error: "Unknown type" };
     }
 
+    // Enforce image cap server-side (Cloudflare Workers ~50 subrequest limit:
+    // imageCount + 5 fixed DB ops must stay under it)
+    const MAX_IMAGES = 40;
+    if (imageFiles.length > MAX_IMAGES) {
+      return { error: `Max ${MAX_IMAGES} images per section — split into multiple sections if needed` };
+    }
+
     let correctAnswers: unknown[] = [];
     if (imageFiles.length > 0) {
       const answerLines = answerKey.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -276,11 +283,11 @@ export async function action({ params, request, context }: Route.ActionArgs) {
       .select("id")
       .single();
 
-    if (secErr || !sec) return null;
+    if (secErr || !sec) return { error: secErr?.message ?? "Failed to create section — please try again" };
 
     // ── Upload images + insert questions (if any) ─────────────────
     if (imageFiles.length > 0) {
-      const CHUNK = 20;
+      const CHUNK = 5; // keep concurrent Supabase Storage fetches low
       const uploads: ({ publicUrl: string } | { error: string })[] = [];
       for (let i = 0; i < imageFiles.length; i += CHUNK) {
         const chunk = imageFiles.slice(i, i + CHUNK);
