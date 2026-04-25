@@ -210,6 +210,29 @@ export async function action({ params, request, context }: Route.ActionArgs) {
 
     const marksWrongNormalised = marksWrong > 0 ? -marksWrong : marksWrong;
 
+    // ── Handle paragraph passage upload ──────────────────────────
+    let paragraphId: string | null = null;
+    if (questionType === "paragraph") {
+      const paraImageFile = formData.get("paragraph_image") as File | null;
+      if (!paraImageFile || paraImageFile.size === 0)
+        return { error: "A passage image is required for paragraph-based sections" };
+
+      const paraUpload = await uploadImage(paraImageFile, user.id, env);
+      if ("error" in paraUpload)
+        return { error: `Passage upload failed: ${paraUpload.error}` };
+
+      const { data: para, error: paraErr } = await supabase
+        .from("paragraphs")
+        .insert({ owner_id: user.id, image_url: paraUpload.publicUrl, title: null })
+        .select("id")
+        .single();
+
+      if (paraErr || !para)
+        return { error: "Failed to save passage — please try again" };
+
+      paragraphId = para.id;
+    }
+
     // ── Parse answer key (only if images were uploaded) ─────────
     type ParsedAnswer = { answer: unknown } | { error: string };
 
@@ -311,7 +334,7 @@ export async function action({ params, request, context }: Route.ActionArgs) {
             subject,
             chapter,
             correct_answer: correctAnswers[i],
-            paragraph_id: null,
+            paragraph_id: paragraphId,
             folder_id: null,
             is_shared: false,
           }))

@@ -19,7 +19,6 @@ export default [
   // ── Question & Paragraph management ──────────────────────
   route("questions/new",  "routes/questions.new.tsx"),
   route("questions/:id",  "routes/questions.$id.tsx"),
-  route("paragraphs/new", "routes/paragraphs.new.tsx"),
 
   route("settings",          "routes/settings.tsx"),
   // ── Tests ─────────────────────────────────────────────────

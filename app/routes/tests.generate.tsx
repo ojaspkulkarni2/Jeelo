@@ -1,33 +1,98 @@
-import { redirect, data, Link, Form } from "react-router";
-import { useState } from "react";
+import { redirect, Link, useFetcher } from "react-router";
+import { useState, useMemo } from "react";
 import type { Route } from "./+types/tests.generate";
 import { requireUser } from "~/lib/auth.server";
 import { createServerClient } from "~/lib/supabase.server";
 import { Sidebar } from "~/components/sidebar";
-import {
-  IconFlash, IconChevronRight, IconX, IconCheck,
-} from "~/components/icons";
-import type { QuestionType, Subject, ExamType } from "~/lib/database.types";
+import { IconChevronRight, IconFlash, IconCheck, IconLayers } from "~/components/icons";
+import type { QuestionType, Subject } from "~/lib/database.types";
 
 // ── Types ──────────────────────────────────────────────────────
 
-type ChapterGroup = {
+type WrongSection = {
   subject: Subject;
-  chapter: string;
-  counts: Partial<Record<QuestionType, number>>;
-};
-
-type SectionConfig = {
-  id: string;
-  subject: Subject | "";
-  chapters: string[];   // multi-chapter mixing
-  chapter: string;       // kept for legacy single-select
-  question_type: QuestionType | "";
-  count: number;
+  question_type: QuestionType;
   marks_correct: number;
   marks_wrong: number;
-  mixChapters: boolean;
+  question_ids: string[];
 };
+
+type TestSummary = {
+  id: string;
+  title: string;
+  submitted_at: string;
+  wrong_count: number;
+  missed_count: number;
+  wrong_sections: WrongSection[];
+};
+
+// ── Shared wrong-question logic ─────────────────────────────────
+
+function computeWrongSections(
+  sections: any[],
+  answers: Record<string, { status?: string; answer?: unknown }>
+): { wrongSections: WrongSection[]; wrongCount: number; missedCount: number } {
+  let wrongCount = 0;
+  let missedCount = 0;
+  const wrongSections: WrongSection[] = [];
+
+  for (const sec of sections) {
+    const tqs = [...((sec.test_questions ?? []) as any[])]
+      .sort((a: any, b: any) => a.display_order - b.display_order);
+    const missedIds: string[] = [];
+
+    for (const tq of tqs) {
+      const q = tq.questions;
+      if (!q) continue;
+      const state = answers[q.id];
+      const given = state?.answer;
+      const status = state?.status;
+
+      let result: "correct" | "wrong" | "missed";
+      if (!state || status === "not_visited" || status === "not_answered" || given === undefined) {
+        result = "missed";
+      } else {
+        const ca = q.correct_answer;
+        const qt = q.type as QuestionType;
+        if (qt === "scq" || qt === "paragraph") {
+          result = Array.isArray(ca) && Array.isArray(given) && ca[0] === (given as string[])[0]
+            ? "correct" : "wrong";
+        } else if (qt === "mcq") {
+          if (!Array.isArray(ca) || !Array.isArray(given) || (given as string[]).length === 0) {
+            result = "missed";
+          } else {
+            const cSet = new Set(ca);
+            const gArr = given as string[];
+            result = cSet.size === gArr.length && gArr.every((x: string) => cSet.has(x))
+              ? "correct" : "wrong";
+          }
+        } else if (qt === "integer" || qt === "numerical") {
+          const gn = parseFloat(String(given));
+          const cn = parseFloat(String(ca));
+          result = !isNaN(gn) && !isNaN(cn) && Math.abs(gn - cn) < 0.001 ? "correct" : "wrong";
+        } else {
+          result = "missed";
+        }
+      }
+
+      if (result === "wrong") wrongCount++;
+      else if (result === "missed") missedCount++;
+      if (result !== "correct") missedIds.push(q.id);
+    }
+
+    if (missedIds.length > 0) {
+      wrongSections.push({
+        subject: sec.subject,
+        question_type: sec.question_type,
+        marks_correct: sec.marks_correct,
+        marks_wrong: sec.marks_wrong,
+        question_ids: missedIds,
+      });
+    }
+  }
+
+  return { wrongSections, wrongCount, missedCount };
+}
 
 // ── Loader ─────────────────────────────────────────────────────
 
@@ -36,40 +101,68 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const user = await requireUser(request, env);
   const supabase = createServerClient(env);
 
-  // Aggregate available questions by subject + chapter + type
-  const { data: qs } = await supabase
-    .from("questions")
-    .select("subject, chapter, type")
+  const { data: attempts } = await supabase
+    .from("attempts")
+    .select("id, test_id, submitted_at, answers")
+    .eq("student_id", user.id)
+    .not("submitted_at", "is", null);
+
+  if (!attempts || attempts.length === 0) return { user, tests: [] };
+
+  const testIds = [...new Set(attempts.map((a) => a.test_id))];
+
+  const { data: ownedTests } = await supabase
+    .from("tests")
+    .select("id, title")
+    .in("id", testIds)
     .eq("owner_id", user.id);
 
-  const map = new Map<string, ChapterGroup>();
-  for (const q of qs ?? []) {
-    const key = `${q.subject}:::${q.chapter}`;
-    if (!map.has(key)) {
-      map.set(key, { subject: q.subject as Subject, chapter: q.chapter, counts: {} });
-    }
-    const g = map.get(key)!;
-    g.counts[q.type as QuestionType] = (g.counts[q.type as QuestionType] ?? 0) + 1;
+  if (!ownedTests || ownedTests.length === 0) return { user, tests: [] };
+
+  const ownedTestIds = new Set(ownedTests.map((t) => t.id));
+
+  const { data: rawSections } = await supabase
+    .from("test_sections")
+    .select(`
+      id, test_id, question_type, subject, marks_correct, marks_wrong,
+      test_questions(display_order, question_id, questions(id, correct_answer, type))
+    `)
+    .in("test_id", Array.from(ownedTestIds))
+    .order("display_order", { ascending: true });
+
+  const sectionsByTest = new Map<string, any[]>();
+  for (const sec of rawSections ?? []) {
+    const arr = sectionsByTest.get((sec as any).test_id) ?? [];
+    arr.push(sec);
+    sectionsByTest.set((sec as any).test_id, arr);
   }
 
-  const chapters = Array.from(map.values()).sort((a, b) =>
-    a.subject.localeCompare(b.subject) || a.chapter.localeCompare(b.chapter)
-  );
+  const testMap = new Map(ownedTests.map((t) => [t.id, t]));
+  const tests: TestSummary[] = [];
 
-  // User settings for defaults
-  const { data: settings } = await supabase
-    .from("user_settings")
-    .select("default_duration_mins, default_marks_correct, default_marks_wrong")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  for (const attempt of attempts) {
+    if (!ownedTestIds.has(attempt.test_id)) continue;
+    const test = testMap.get(attempt.test_id);
+    if (!test) continue;
 
-  return {
-    user,
-    chapters,
-    defaultDuration: settings?.default_duration_mins ?? 180,
-    defaultMarksCorrect: settings?.default_marks_correct ?? 4,
-    defaultMarksWrong: settings?.default_marks_wrong ?? -1,
-  };
+    const answers = (attempt.answers ?? {}) as Record<string, { status?: string; answer?: unknown }>;
+    const sections = sectionsByTest.get(attempt.test_id) ?? [];
+    const { wrongSections, wrongCount, missedCount } = computeWrongSections(sections, answers);
+
+    if (wrongCount + missedCount > 0) {
+      tests.push({
+        id: test.id,
+        title: test.title,
+        submitted_at: attempt.submitted_at!,
+        wrong_count: wrongCount,
+        missed_count: missedCount,
+        wrong_sections: wrongSections,
+      });
+    }
+  }
+
+  tests.sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
+  return { user, tests };
 }
 
 // ── Action ─────────────────────────────────────────────────────
@@ -78,651 +171,445 @@ export async function action({ request, context }: Route.ActionArgs) {
   const env = context.cloudflare.env;
   const user = await requireUser(request, env);
   const supabase = createServerClient(env);
-  const formData = await request.formData();
+  const fd = await request.formData();
 
-  const title       = String(formData.get("title") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim() || null;
-  const durationMins = parseInt(String(formData.get("duration_mins") ?? ""), 10);
-  const sectionsRaw  = String(formData.get("sections_json") ?? "[]");
-  const examTypeRaw  = String(formData.get("exam_type") ?? "main");
-  const examType: ExamType = examTypeRaw === "advanced" ? "advanced" : "main";
+  const title = String(fd.get("title") ?? "").trim();
+  const durationMins = parseInt(String(fd.get("duration_mins") ?? ""), 10);
+  const selectedIds = JSON.parse(String(fd.get("selected_ids") ?? "[]")) as string[];
 
-  if (!title) return data({ error: "Title is required" }, { status: 400 });
-  if (isNaN(durationMins) || durationMins <= 0)
-    return data({ error: "Invalid duration" }, { status: 400 });
+  if (!title) return { error: "Title is required" };
+  if (isNaN(durationMins) || durationMins <= 0) return { error: "Invalid duration" };
+  if (selectedIds.length === 0) return { error: "Select at least one test" };
 
-  let sectionConfigs: SectionConfig[] = [];
-  try { sectionConfigs = JSON.parse(sectionsRaw); } catch {}
+  // Re-verify ownership server-side
+  const { data: ownedTests } = await supabase
+    .from("tests")
+    .select("id")
+    .in("id", selectedIds)
+    .eq("owner_id", user.id);
 
-  if (sectionConfigs.length === 0)
-    return data({ error: "Add at least one section" }, { status: 400 });
+  const safeIds = (ownedTests ?? []).map((t) => t.id);
+  if (safeIds.length === 0) return { error: "No valid tests selected" };
 
-  for (const s of sectionConfigs) {
-    const effectiveChapters = s.mixChapters ? (s.chapters ?? []) : (s.chapter ? [s.chapter] : []);
-    if (!s.subject || effectiveChapters.length === 0 || !s.question_type || s.count < 1)
-      return data({ error: "All section fields are required" }, { status: 400 });
-    s._effectiveChapters = effectiveChapters;
+  const { data: attempts } = await supabase
+    .from("attempts")
+    .select("test_id, answers")
+    .in("test_id", safeIds)
+    .eq("student_id", user.id)
+    .not("submitted_at", "is", null);
+
+  const { data: rawSections } = await supabase
+    .from("test_sections")
+    .select(`
+      id, test_id, question_type, subject, marks_correct, marks_wrong,
+      test_questions(display_order, question_id, questions(id, correct_answer, type))
+    `)
+    .in("test_id", safeIds)
+    .order("display_order", { ascending: true });
+
+  const sectionsByTest = new Map<string, any[]>();
+  for (const sec of rawSections ?? []) {
+    const arr = sectionsByTest.get((sec as any).test_id) ?? [];
+    arr.push(sec);
+    sectionsByTest.set((sec as any).test_id, arr);
   }
 
-  // Create the test
-  const { data: test, error: testErr } = await supabase
+  // Deduplicate: group wrong/missed by (subject, question_type, marks_correct, marks_wrong)
+  type GroupKey = string;
+  type GroupMeta = { subject: Subject; question_type: QuestionType; marks_correct: number; marks_wrong: number };
+  const groups = new Map<GroupKey, { meta: GroupMeta; ids: Set<string> }>();
+
+  for (const attempt of attempts ?? []) {
+    const answers = (attempt.answers ?? {}) as Record<string, { status?: string; answer?: unknown }>;
+    const sections = sectionsByTest.get(attempt.test_id) ?? [];
+    const { wrongSections } = computeWrongSections(sections, answers);
+
+    for (const sec of wrongSections) {
+      const key: GroupKey = `${sec.subject}::${sec.question_type}::${sec.marks_correct}::${sec.marks_wrong}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          meta: { subject: sec.subject, question_type: sec.question_type, marks_correct: sec.marks_correct, marks_wrong: sec.marks_wrong },
+          ids: new Set(),
+        });
+      }
+      for (const id of sec.question_ids) groups.get(key)!.ids.add(id);
+    }
+  }
+
+  if (groups.size === 0) return { error: "No wrong or missed questions found across selected tests" };
+
+  const { data: newTest, error: testErr } = await supabase
     .from("tests")
-    .insert({
-      owner_id: user.id,
-      title,
-      description,
-      duration_mins: durationMins,
-      is_published: false,
-      exam_type: examType,
-    })
+    .insert({ owner_id: user.id, title, duration_mins: durationMins, is_published: true, visibility: "private" })
     .select("id")
     .single();
 
-  if (testErr || !test) return data({ error: "Failed to create test" }, { status: 500 });
+  if (testErr || !newTest) return { error: "Failed to create test — please try again" };
 
-  // For each section config, pick random questions and insert
-  for (let i = 0; i < sectionConfigs.length; i++) {
-    const sc = sectionConfigs[i];
+  const SUBJECT_ORDER: Subject[] = ["physics", "chemistry", "mathematics"];
+  const sortedGroups = Array.from(groups.entries()).sort(([ka], [kb]) => {
+    const [subA, typeA] = ka.split("::");
+    const [subB, typeB] = kb.split("::");
+    const si = SUBJECT_ORDER.indexOf(subA as Subject) - SUBJECT_ORDER.indexOf(subB as Subject);
+    return si !== 0 ? si : typeA.localeCompare(typeB);
+  });
 
-    // Insert section
-    const { data: sec, error: secErr } = await supabase
+  for (let i = 0; i < sortedGroups.length; i++) {
+    const [, { meta, ids }] = sortedGroups[i];
+    const qids = Array.from(ids);
+
+    const { data: newSec, error: secErr } = await supabase
       .from("test_sections")
       .insert({
-        test_id: test.id,
-        name: sc._effectiveChapters.length > 1
-          ? `${SUBJECT_META[sc.subject as Subject]?.label} — Mixed (${sc._effectiveChapters.length} chapters)`
-          : `${SUBJECT_META[sc.subject as Subject]?.label} — ${sc._effectiveChapters[0]}`,
-        question_type: sc.question_type as QuestionType,
-        subject: sc.subject as Subject,
-        marks_correct: sc.marks_correct,
-        marks_wrong: sc.marks_wrong > 0 ? -sc.marks_wrong : sc.marks_wrong,
+        test_id: newTest.id,
+        name: `${SUBJECT_LABELS[meta.subject]} — ${TYPE_LABELS[meta.question_type]}`,
+        question_type: meta.question_type,
+        subject: meta.subject,
+        marks_correct: meta.marks_correct,
+        marks_wrong: meta.marks_wrong,
         marks_partial: null,
         display_order: i + 1,
       })
       .select("id")
       .single();
 
-    if (secErr || !sec) continue;
+    if (secErr || !newSec) continue;
 
-    // Fetch matching questions (random order via shuffle in JS)
-    const { data: qs } = await supabase
-      .from("questions")
-      .select("id")
-      .eq("owner_id", user.id)
-      .eq("subject", sc.subject)
-      .in("chapter", sc._effectiveChapters)
-      .eq("type", sc.question_type);
-
-    const pool = (qs ?? []) as { id: string }[];
-    // Shuffle (Fisher-Yates)
-    for (let j = pool.length - 1; j > 0; j--) {
-      const k = Math.floor(Math.random() * (j + 1));
-      [pool[j], pool[k]] = [pool[k], pool[j]];
-    }
-    const chosen = pool.slice(0, sc.count);
-
-    if (chosen.length > 0) {
-      await supabase.from("test_questions").insert(
-        chosen.map((q, idx) => ({
-          test_section_id: sec.id,
-          question_id: q.id,
-          display_order: idx + 1,
-        }))
-      );
-    }
+    await supabase.from("test_questions").insert(
+      qids.map((qid, idx) => ({ test_section_id: newSec.id, question_id: qid, display_order: idx + 1 }))
+    );
   }
 
-  throw redirect(`/tests/${test.id}`);
+  throw redirect(`/tests/${newTest.id}/preview`);
 }
 
 // ── Constants ──────────────────────────────────────────────────
 
-const SUBJECT_META: Record<Subject, { label: string; color: string; bg: string }> = {
-  physics:     { label: "Physics",     color: "#1d4ed8", bg: "#dbeafe" },
-  chemistry:   { label: "Chemistry",   color: "#15803d", bg: "#dcfce7" },
-  mathematics: { label: "Mathematics", color: "#7e22ce", bg: "#f3e8ff" },
+const SUBJECT_LABELS: Record<Subject, string> = {
+  physics: "Physics", chemistry: "Chemistry", mathematics: "Mathematics",
 };
 
 const TYPE_LABELS: Record<QuestionType, string> = {
-  scq:       "Single Correct (SCQ)",
-  mcq:       "Multi Correct (MCQ)",
-  integer:   "Integer",
-  numerical: "Numerical",
-  paragraph: "Paragraph",
+  scq: "SCQ", mcq: "MCQ", integer: "Integer", numerical: "Numerical", paragraph: "Paragraph",
 };
 
-const DEFAULT_MARKS: Record<QuestionType, { correct: number; wrong: number }> = {
-  scq:       { correct: 4, wrong: -1 },
-  mcq:       { correct: 4, wrong: -2 },
-  integer:   { correct: 4, wrong: 0 },
-  numerical: { correct: 4, wrong: 0 },
-  paragraph: { correct: 3, wrong: -1 },
+const SUBJECT_COLORS: Record<Subject, { color: string; bg: string }> = {
+  physics:     { color: "#1d4ed8", bg: "#dbeafe" },
+  chemistry:   { color: "#15803d", bg: "#dcfce7" },
+  mathematics: { color: "#7e22ce", bg: "#f3e8ff" },
 };
 
-let nextId = 1;
-function makeSection(
-  defaultCorrect = 4,
-  defaultWrong = -1
-): SectionConfig {
-  return {
-    id: String(nextId++),
-    subject: "",
-    chapter: "",
-    chapters: [],
-    mixChapters: false,
-    question_type: "",
-    count: 10,
-    marks_correct: defaultCorrect,
-    marks_wrong: defaultWrong,
-  };
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-// ── Component ──────────────────────────────────────────────────
+// ── StepDots ───────────────────────────────────────────────────
 
-export default function TestGeneratePage({ loaderData, actionData }: Route.ComponentProps) {
-  const { user, chapters, defaultDuration, defaultMarksCorrect, defaultMarksWrong } = loaderData;
-  const error = actionData && "error" in actionData ? actionData.error : null;
-
-  const [sections, setSections] = useState<SectionConfig[]>([
-    makeSection(defaultMarksCorrect, defaultMarksWrong),
-  ]);
-
-  function addSection() {
-    setSections((prev) => [...prev, makeSection(defaultMarksCorrect, defaultMarksWrong)]);
-  }
-
-  function removeSection(id: string) {
-    setSections((prev) => prev.filter((s) => s.id !== id));
-  }
-
-  function updateSection(id: string, patch: Partial<SectionConfig>) {
-    setSections((prev) =>
-      prev.map((s) => {
-        if (s.id !== id) return s;
-        const updated = { ...s, ...patch };
-        // Auto-fill marks when type changes
-        if (patch.question_type && patch.question_type !== s.question_type) {
-          const def = DEFAULT_MARKS[patch.question_type as QuestionType];
-          if (def) {
-            updated.marks_correct = def.correct;
-            updated.marks_wrong = def.wrong;
-          }
-        }
-        return updated;
-      })
-    );
-  }
-
-  function chaptersFor(subject: Subject | "") {
-    if (!subject) return [];
-    return chapters.filter((c) => c.subject === subject);
-  }
-
-  function typesFor(subject: Subject | "", chapter: string) {
-    const g = chapters.find((c) => c.subject === subject && c.chapter === chapter);
-    if (!g) return [];
-    return (Object.entries(g.counts) as [QuestionType, number][]).filter(([, n]) => n > 0);
-  }
-
-  function maxFor(subject: Subject | "", chapter: string, qtype: QuestionType | "") {
-    if (!subject || !chapter || !qtype) return 0;
-    const g = chapters.find((c) => c.subject === subject && c.chapter === chapter);
-    return g?.counts[qtype as QuestionType] ?? 0;
-  }
-
-  const totalQ = sections.reduce((s, sec) => s + (sec.count || 0), 0);
-  const totalM = sections.reduce(
-    (s, sec) => s + sec.marks_correct * (sec.count || 0),
-    0
+function StepDots({ stage }: { stage: 1 | 2 | 3 }) {
+  const labels = ["Pick tests", "Name it", "Generate"];
+  return (
+    <div style={{ display: "flex", alignItems: "center", marginBottom: 32 }}>
+      {labels.map((label, i) => {
+        const n = i + 1;
+        const done = stage > n;
+        const active = stage === n;
+        return (
+          <div key={n} style={{ display: "flex", alignItems: "center", flex: n < 3 ? 1 : undefined }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: "50%",
+                background: (done || active) ? "var(--c-brand-500)" : "var(--c-surface-2)",
+                border: (done || active) ? "none" : "1.5px solid var(--c-border-strong)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: (done || active) ? "#fff" : "var(--c-text-3)",
+                fontSize: 11, fontWeight: 700, transition: "all 0.2s",
+              }}>
+                {done ? <IconCheck size={12} strokeWidth={2.5} /> : n}
+              </div>
+              <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? "var(--c-text)" : "var(--c-text-3)", whiteSpace: "nowrap" }}>
+                {label}
+              </span>
+            </div>
+            {n < 3 && (
+              <div style={{ flex: 1, height: 1.5, marginBottom: 20, marginLeft: 8, marginRight: 8, background: done ? "var(--c-brand-400)" : "var(--c-border)", transition: "background 0.2s" }} />
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
+}
+
+// ── Stage 1 — Pick Tests ───────────────────────────────────────
+
+function Stage1({ tests, selected, onToggle, onContinue }: {
+  tests: TestSummary[]; selected: Set<string>;
+  onToggle: (id: string) => void; onContinue: () => void;
+}) {
+  const totalMistakes = tests.filter((t) => selected.has(t.id)).reduce((s, t) => s + t.wrong_count + t.missed_count, 0);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 700 }}>Which tests to pull from?</h2>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--c-text-3)" }}>
+          All wrong and missed answers from your picks go into one revision test.
+        </p>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+        {tests.map((t) => {
+          const active = selected.has(t.id);
+          const subjects = [...new Set(t.wrong_sections.map((s) => s.subject))];
+          return (
+            <div
+              key={t.id}
+              onClick={() => onToggle(t.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 14, padding: "14px 16px",
+                background: active ? "rgba(215,118,86,0.05)" : "var(--c-surface)",
+                border: `1.5px solid ${active ? "var(--c-brand-400)" : "var(--c-border)"}`,
+                borderRadius: 10, cursor: "pointer", transition: "border-color 0.15s, background 0.15s",
+              }}
+            >
+              <div style={{
+                width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                background: active ? "var(--c-brand-500)" : "transparent",
+                border: `2px solid ${active ? "var(--c-brand-500)" : "var(--c-border-strong)"}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all 0.15s",
+              }}>
+                {active && <IconCheck size={11} strokeWidth={3} color="#fff" />}
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--c-text)", marginBottom: 3 }}>
+                  {t.title.replace(/\s*\[Layer \d+\]/, "")}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>{formatDate(t.submitted_at)}</span>
+                  {subjects.map((s) => (
+                    <span key={s} style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: SUBJECT_COLORS[s].bg, color: SUBJECT_COLORS[s].color }}>
+                      {SUBJECT_LABELS[s]}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: active ? "var(--c-brand-500)" : "var(--c-text-2)" }}>
+                  {t.wrong_count + t.missed_count}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--c-text-3)" }}>mistakes</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "var(--c-surface)", border: "1px solid var(--c-border)", borderRadius: 10 }}>
+        <span style={{ fontSize: 13, color: "var(--c-text-2)" }}>
+          {selected.size === 0 ? "No tests selected" : (
+            <><strong style={{ color: "var(--c-text)" }}>{selected.size}</strong> test{selected.size !== 1 ? "s" : ""} · <strong style={{ color: "var(--c-text)" }}>{totalMistakes}</strong> mistakes</>
+          )}
+        </span>
+        <button className="btn btn-primary btn-sm" disabled={selected.size === 0} onClick={onContinue}>
+          Continue →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Stage 2 — Name it ──────────────────────────────────────────
+
+function Stage2({ tests, selected, title, setTitle, duration, setDuration, onBack, onContinue }: {
+  tests: TestSummary[]; selected: Set<string>;
+  title: string; setTitle: (v: string) => void;
+  duration: number; setDuration: (v: number) => void;
+  onBack: () => void; onContinue: () => void;
+}) {
+  const totalMistakes = tests.filter((t) => selected.has(t.id)).reduce((s, t) => s + t.wrong_count + t.missed_count, 0);
+  const DURATIONS = [30, 45, 60, 90, 120] as const;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 700 }}>Name your Grand Layer</h2>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--c-text-3)" }}>
+          {totalMistakes} question{totalMistakes !== 1 ? "s" : ""} across {selected.size} test{selected.size !== 1 ? "s" : ""}.
+        </p>
+      </div>
+
+      <div style={{ background: "var(--c-surface)", border: "1px solid var(--c-border)", borderRadius: 10, padding: "20px 24px", marginBottom: 16, display: "flex", flexDirection: "column", gap: 18 }}>
+        <div className="field" style={{ margin: 0 }}>
+          <label className="label" htmlFor="grand-title">Title</label>
+          <input id="grand-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Grand Layer — Mock 1 & 2" autoFocus />
+        </div>
+
+        <div className="field" style={{ margin: 0 }}>
+          <label className="label">Duration</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {DURATIONS.map((m) => {
+              const h = Math.floor(m / 60), rem = m % 60;
+              const label = m < 60 ? `${m}m` : rem ? `${h}h ${rem}m` : `${h}h`;
+              return (
+                <button key={m} type="button" onClick={() => setDuration(m)} style={{
+                  padding: "7px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  border: duration === m ? "2px solid var(--c-brand-500)" : "1.5px solid var(--c-border)",
+                  background: duration === m ? "rgba(215,118,86,0.07)" : "var(--c-surface-2)",
+                  color: duration === m ? "var(--c-brand-500)" : "var(--c-text-2)",
+                  transition: "all 0.15s",
+                }}>{label}</button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <button className="btn btn-ghost btn-sm" onClick={onBack}>← Back</button>
+        <button className="btn btn-primary btn-sm" disabled={!title.trim()} onClick={onContinue}>Review →</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Stage 3 — Review & Generate ────────────────────────────────
+
+function Stage3({ tests, selected, title, duration, onBack }: {
+  tests: TestSummary[]; selected: Set<string>;
+  title: string; duration: number; onBack: () => void;
+}) {
+  const fetcher = useFetcher();
+  const isSubmitting = fetcher.state !== "idle";
+  const serverError = (fetcher.data as any)?.error ?? null;
+
+  const breakdown = useMemo(() => {
+    const groups = new Map<string, { subject: Subject; question_type: QuestionType; marks_correct: number; marks_wrong: number; ids: Set<string> }>();
+    for (const test of tests) {
+      if (!selected.has(test.id)) continue;
+      for (const sec of test.wrong_sections) {
+        const key = `${sec.subject}::${sec.question_type}::${sec.marks_correct}::${sec.marks_wrong}`;
+        if (!groups.has(key)) groups.set(key, { subject: sec.subject, question_type: sec.question_type, marks_correct: sec.marks_correct, marks_wrong: sec.marks_wrong, ids: new Set() });
+        for (const id of sec.question_ids) groups.get(key)!.ids.add(id);
+      }
+    }
+    const ORDER: Subject[] = ["physics", "chemistry", "mathematics"];
+    return Array.from(groups.values()).sort((a, b) => {
+      const si = ORDER.indexOf(a.subject) - ORDER.indexOf(b.subject);
+      return si !== 0 ? si : a.question_type.localeCompare(b.question_type);
+    });
+  }, [tests, selected]);
+
+  const totalQ = breakdown.reduce((s, g) => s + g.ids.size, 0);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 700 }}>Your Grand Layer</h2>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--c-text-3)" }}>
+          {totalQ} unique question{totalQ !== 1 ? "s" : ""} · "{title}"
+        </p>
+      </div>
+
+      <div style={{ background: "var(--c-surface)", border: "1px solid var(--c-border)", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 70px", padding: "8px 16px", fontSize: 11, fontWeight: 700, color: "var(--c-text-3)", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid var(--c-border)", background: "var(--c-subtle)" }}>
+          <span>Subject</span><span>Type</span><span style={{ textAlign: "right" }}>Qs</span>
+        </div>
+
+        {breakdown.map((g, i) => {
+          const col = SUBJECT_COLORS[g.subject];
+          return (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 100px 70px", padding: "11px 16px", alignItems: "center", borderTop: i > 0 ? "1px solid var(--c-border-subtle)" : undefined }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: col.bg, color: col.color }}>{SUBJECT_LABELS[g.subject]}</span>
+                <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>{g.marks_correct > 0 ? `+${g.marks_correct}` : g.marks_correct}/{g.marks_wrong}</span>
+              </div>
+              <span style={{ fontSize: 13, color: "var(--c-text-2)" }}>{TYPE_LABELS[g.question_type]}</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "var(--c-text)", textAlign: "right" }}>{g.ids.size}</span>
+            </div>
+          );
+        })}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 70px", padding: "11px 16px", borderTop: "1px solid var(--c-border)", background: "var(--c-subtle)" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--c-text)", gridColumn: "1 / 3" }}>Total</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--c-brand-500)", textAlign: "right" }}>{totalQ}</span>
+        </div>
+      </div>
+
+      {serverError && <div className="alert-error" style={{ marginBottom: 16, fontSize: 13 }}>{serverError}</div>}
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
+        <button className="btn btn-ghost btn-sm" onClick={onBack} disabled={isSubmitting}>← Back</button>
+        <fetcher.Form method="post">
+          <input type="hidden" name="title" value={title} />
+          <input type="hidden" name="duration_mins" value={duration} />
+          <input type="hidden" name="selected_ids" value={JSON.stringify(Array.from(selected))} />
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting} style={{ opacity: isSubmitting ? 0.6 : 1 }}>
+            <IconFlash size={14} />
+            {isSubmitting ? "Generating…" : "Generate Grand Layer →"}
+          </button>
+        </fetcher.Form>
+      </div>
+    </div>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────
+
+export default function TestGeneratePage({ loaderData }: Route.ComponentProps) {
+  const { user, tests } = loaderData;
+
+  const [stage, setStage] = useState<1 | 2 | 3>(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [title, setTitle] = useState("Grand Layer");
+  const [duration, setDuration] = useState(60);
+
+  function toggleTest(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   return (
     <div className="app-layout">
       <Sidebar displayName={user.display_name} />
       <main className="app-main">
-        <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 24px 60px" }}>
+        <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 24px 60px" }}>
 
-          {/* ── Header — breadcrumb + title in one stacked div so they
-               don't spread sideways across the pg-head flex row ── */}
           <div className="pg-head" style={{ paddingBottom: 0 }}>
             <div>
               <nav className="result-breadcrumb" style={{ marginBottom: 6 }}>
                 <Link to="/tests" className="result-breadcrumb-link">My Tests</Link>
                 <IconChevronRight size={13} />
-                <span>Generate Test</span>
+                <span>Grand Layer</span>
               </nav>
-              <h1 className="pg-title" style={{ marginTop: 6 }}>
-                <IconFlash size={22} style={{ display: "inline", marginRight: 8, verticalAlign: "middle", color: "var(--c-brand-500)" }} />
-                Generate a Test
+              <h1 className="pg-title" style={{ marginTop: 4, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                <IconLayers size={20} style={{ color: "var(--c-brand-500)", display: "inline" }} />
+                Grand Layer
               </h1>
-              <p className="pg-subtitle" style={{ marginBottom: 24 }}>
-                Pick chapters and question types — we'll randomly select from your question bank.
+              <p className="pg-subtitle" style={{ marginBottom: 28 }}>
+                Pull wrong and missed answers from multiple tests into one focused revision session.
               </p>
             </div>
           </div>
 
-          {error && (
-            <div className="alert-error" style={{ marginBottom: 16 }}>
-              {error}
-            </div>
-          )}
-
-          {chapters.length === 0 ? (
-            <div className="lib-empty" style={{ marginTop: 32 }}>
-              <div className="lib-empty-icon" style={{ color: "var(--c-brand-400)" }}>
-                <IconFlash size={28} />
-              </div>
-              <p className="lib-empty-title">No questions in your library yet</p>
-              <p className="lib-empty-body">
-                Upload questions first, then come back to auto-generate a test.
-              </p>
-              <Link to="/questions/new" className="btn btn-primary">
-                Upload questions →
-              </Link>
+          {tests.length === 0 ? (
+            <div className="lib-empty" style={{ marginTop: 16 }}>
+              <p className="lib-empty-title">No completed tests yet</p>
+              <p className="lib-empty-body">Take at least one test — then come back to build a Grand Layer from your mistakes.</p>
+              <Link to="/tests" className="btn btn-primary">Go to My Tests →</Link>
             </div>
           ) : (
-            <Form method="post">
-              <input
-                type="hidden"
-                name="sections_json"
-                value={JSON.stringify(sections)}
-              />
-
-              {/* ── Test basics ── */}
-              <div
-                style={{
-                  background: "var(--c-surface)",
-                  border: "1px solid var(--c-border)",
-                  borderRadius: "var(--r-lg)",
-                  padding: "20px 24px",
-                  marginBottom: 14,
-                }}
-              >
-                <p
-                  style={{
-                    margin: "0 0 14px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--c-text-2)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                  }}
-                >
-                  Test details
-                </p>
-                <div className="field" style={{ marginBottom: 12 }}>
-                  <label className="label" htmlFor="gen-title">
-                    Test title
-                  </label>
-                  <input
-                    id="gen-title"
-                    name="title"
-                    className="input"
-                    placeholder="e.g. JEE Main Mock — Physics + Chemistry"
-                    required
-                    autoFocus
-                  />
-                </div>
-                <div className="field" style={{ marginBottom: 12 }}>
-                  <label className="label" htmlFor="gen-desc">
-                    Description{" "}
-                    <span style={{ fontWeight: 400, color: "var(--c-text-3)" }}>
-                      (optional)
-                    </span>
-                  </label>
-                  <textarea
-                    id="gen-desc"
-                    name="description"
-                    className="input"
-                    rows={2}
-                    placeholder="Topics covered, difficulty, etc."
-                    style={{ resize: "vertical" }}
-                  />
-                </div>
-                <div className="field">
-                  <label className="label">Duration</label>
-                  <div className="create-test-duration-row">
-                    {[60, 90, 120, 180].map((mins) => (
-                      <label key={mins} className="create-test-duration-chip">
-                        <input
-                          type="radio"
-                          name="duration_mins"
-                          value={mins}
-                          defaultChecked={mins === defaultDuration}
-                          style={{ display: "none" }}
-                        />
-                        <span>
-                          {mins === 60
-                            ? "1h"
-                            : mins === 90
-                            ? "1h 30m"
-                            : mins === 120
-                            ? "2h"
-                            : "3h"}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="label">Exam type</label>
-                  <div className="create-test-duration-row">
-                    {([
-                      { value: "main",     label: "JEE Main" },
-                      { value: "advanced", label: "JEE Advanced" },
-                    ] as { value: ExamType; label: string }[]).map(({ value, label }) => (
-                      <label key={value} className="create-test-duration-chip">
-                        <input
-                          type="radio"
-                          name="exam_type"
-                          value={value}
-                          defaultChecked={value === "main"}
-                          style={{ display: "none" }}
-                        />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Sections ── */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
-                {sections.map((sec, idx) => {
-                  const effectiveFirstChapter = sec.mixChapters ? (sec.chapters[0] ?? "") : sec.chapter;
-                  const availTypes = typesFor(sec.subject, effectiveFirstChapter);
-                  const maxQ = maxFor(sec.subject, effectiveFirstChapter, sec.question_type);
-                  const subj = sec.subject ? SUBJECT_META[sec.subject] : null;
-
-                  return (
-                    <div
-                      key={sec.id}
-                      style={{
-                        background: "var(--c-surface)",
-                        border: "1px solid var(--c-border)",
-                        borderRadius: "var(--r-lg)",
-                      }}
-                    >
-                      {/* Section header */}
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          padding: "12px 20px",
-                          borderBottom: "1px solid var(--c-border)",
-                          background: "var(--c-subtle)",
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: "var(--c-text-3)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                            flex: 1,
-                          }}
-                        >
-                          Section {idx + 1}
-                          {subj && (
-                            <span
-                              style={{
-                                marginLeft: 8,
-                                fontSize: 10,
-                                fontWeight: 700,
-                                padding: "1px 6px",
-                                borderRadius: 4,
-                                background: subj.bg,
-                                color: subj.color,
-                                textTransform: "none",
-                                letterSpacing: 0,
-                              }}
-                            >
-                              {subj.label}
-                            </span>
-                          )}
-                        </span>
-                        {sections.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeSection(sec.id)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              cursor: "pointer",
-                              color: "var(--c-text-3)",
-                              padding: "2px",
-                              display: "flex",
-                              alignItems: "center",
-                            }}
-                            title="Remove section"
-                          >
-                            <IconX size={14} />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Section fields */}
-                      <div
-                        style={{
-                          padding: "16px 20px",
-                          display: "grid",
-                          gridTemplateColumns: "1fr 1fr",
-                          gap: 12,
-                        }}
-                      >
-                        {/* Subject */}
-                        <div className="field">
-                          <label className="label">Subject</label>
-                          <select
-                            className="input"
-                            value={sec.subject}
-                            onChange={(e) =>
-                              updateSection(sec.id, {
-                                subject: e.target.value as Subject,
-                                chapter: "",
-                                question_type: "",
-                              })
-                            }
-                          >
-                            <option value="">Select subject</option>
-                            {(["physics", "chemistry", "mathematics"] as Subject[]).map(
-                              (s) => (
-                                <option key={s} value={s}>
-                                  {SUBJECT_META[s].label}
-                                </option>
-                              )
-                            )}
-                          </select>
-                        </div>
-
-                        {/* Chapter — single or mixed */}
-                        <div className="field" style={{ gridColumn: "1 / -1" }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                            <label className="label" style={{ margin: 0 }}>Chapter{sec.mixChapters ? "s" : ""}</label>
-                            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--c-text-3)", cursor: "pointer", userSelect: "none" as const }}>
-                              <input
-                                type="checkbox"
-                                checked={sec.mixChapters}
-                                disabled={!sec.subject}
-                                onChange={e => updateSection(sec.id, { mixChapters: e.target.checked, chapter: "", chapters: [], question_type: "" })}
-                                style={{ accentColor: "var(--c-brand-500)", cursor: "pointer" }}
-                              />
-                              Mix chapters into one section
-                            </label>
-                          </div>
-                          {sec.mixChapters ? (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 10px", border: "1px solid var(--c-border)", borderRadius: "var(--r-md)", background: "var(--c-subtle)", minHeight: 40 }}>
-                              {chaptersFor(sec.subject).map((c) => {
-                                const checked = sec.chapters.includes(c.chapter);
-                                return (
-                                  <label key={c.chapter} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", userSelect: "none" as const, padding: "3px 8px", borderRadius: 20, background: checked ? "var(--c-brand-100)" : "var(--c-surface)", border: `1px solid ${checked ? "var(--c-brand-300)" : "var(--c-border)"}`, color: checked ? "var(--c-brand-700)" : "var(--c-text-2)" }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      style={{ display: "none" }}
-                                      onChange={e => {
-                                        const next = e.target.checked
-                                          ? [...sec.chapters, c.chapter]
-                                          : sec.chapters.filter(ch => ch !== c.chapter);
-                                        updateSection(sec.id, { chapters: next, question_type: "" });
-                                      }}
-                                    />
-                                    {c.chapter}
-                                  </label>
-                                );
-                              })}
-                              {!sec.subject && <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>Select subject first</span>}
-                            </div>
-                          ) : (
-                            <select
-                              className="input"
-                              value={sec.chapter}
-                              disabled={!sec.subject}
-                              onChange={(e) => updateSection(sec.id, { chapter: e.target.value, question_type: "" })}
-                            >
-                              <option value="">{sec.subject ? "Select chapter" : "Select subject first"}</option>
-                              {chaptersFor(sec.subject).map((c) => (
-                                <option key={c.chapter} value={c.chapter}>{c.chapter}</option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-
-                        {/* Question type */}
-                        <div className="field">
-                          <label className="label">Question type</label>
-                          <select
-                            className="input"
-                            value={sec.question_type}
-                            disabled={sec.mixChapters ? sec.chapters.length === 0 : !sec.chapter}
-                            onChange={(e) =>
-                              updateSection(sec.id, {
-                                question_type: e.target.value as QuestionType,
-                              })
-                            }
-                          >
-                            <option value="">
-                              {(sec.mixChapters ? sec.chapters.length > 0 : !!sec.chapter) ? "Select type" : "Select chapter first"}
-                            </option>
-                            {availTypes.map(([type, count]) => (
-                              <option key={type} value={type}>
-                                {TYPE_LABELS[type]} ({count} available)
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Count */}
-                        <div className="field">
-                          <label className="label">
-                            Number of questions
-                            {maxQ > 0 && (
-                              <span style={{ fontWeight: 400, color: "var(--c-text-3)", marginLeft: 4 }}>
-                                (max {maxQ})
-                              </span>
-                            )}
-                          </label>
-                          <input
-                            type="number"
-                            className="input"
-                            min={1}
-                            max={maxQ || undefined}
-                            value={sec.count}
-                            onChange={(e) =>
-                              updateSection(sec.id, {
-                                count: Math.min(parseInt(e.target.value) || 1, maxQ || 9999),
-                              })
-                            }
-                          />
-                        </div>
-
-                        {/* Marks correct */}
-                        <div className="field">
-                          <label className="label">Marks (correct)</label>
-                          <input
-                            type="number"
-                            step="0.5"
-                            className="input"
-                            value={sec.marks_correct}
-                            onChange={(e) =>
-                              updateSection(sec.id, { marks_correct: parseFloat(e.target.value) || 4 })
-                            }
-                          />
-                        </div>
-
-                        {/* Marks wrong */}
-                        <div className="field">
-                          <label className="label">Negative marking</label>
-                          <input
-                            type="number"
-                            step="0.5"
-                            className="input"
-                            value={sec.marks_wrong}
-                            onChange={(e) =>
-                              updateSection(sec.id, { marks_wrong: parseFloat(e.target.value) || 0 })
-                            }
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Add section */}
-              <button
-                type="button"
-                onClick={addSection}
-                className="btn btn-ghost btn-sm"
-                style={{ marginBottom: 20, width: "100%" }}
-              >
-                + Add another section
-              </button>
-
-              {/* Summary + submit */}
-              <div
-                style={{
-                  background: "var(--c-surface)",
-                  border: "1px solid var(--c-border)",
-                  borderRadius: "var(--r-lg)",
-                  padding: "16px 24px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  flexWrap: "wrap",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "var(--c-text-2)",
-                    display: "flex",
-                    gap: 16,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <span>
-                    <strong style={{ color: "var(--c-text)" }}>{sections.length}</strong>{" "}
-                    section{sections.length !== 1 ? "s" : ""}
-                  </span>
-                  <span>
-                    <strong style={{ color: "var(--c-text)" }}>{totalQ}</strong>{" "}
-                    questions
-                  </span>
-                  <span>
-                    <strong style={{ color: "var(--c-text)" }}>{totalM}</strong>{" "}
-                    total marks
-                  </span>
-                </div>
-                <button type="submit" className="btn btn-primary">
-                  <IconFlash size={14} /> Generate Test
-                </button>
-              </div>
-            </Form>
+            <>
+              <StepDots stage={stage} />
+              {stage === 1 && <Stage1 tests={tests} selected={selected} onToggle={toggleTest} onContinue={() => setStage(2)} />}
+              {stage === 2 && <Stage2 tests={tests} selected={selected} title={title} setTitle={setTitle} duration={duration} setDuration={setDuration} onBack={() => setStage(1)} onContinue={() => setStage(3)} />}
+              {stage === 3 && <Stage3 tests={tests} selected={selected} title={title} duration={duration} onBack={() => setStage(2)} />}
+            </>
           )}
         </div>
       </main>

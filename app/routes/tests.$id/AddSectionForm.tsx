@@ -29,6 +29,8 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
   const [isDragging, setIsDragging] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
+  const [paraFile, setParaFile] = useState<File | null>(null);
+  const [paraPreview, setParaPreview] = useState<string | null>(null);
 
   const isSubmitting = fetcher.state !== 'idle';
   const serverError = (fetcher.data as any)?.error ?? null;
@@ -38,6 +40,7 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addMoreRef   = useRef<HTMLInputElement>(null);
   const folderRef    = useRef<HTMLInputElement>(null);
+  const paraFileRef  = useRef<HTMLInputElement>(null);
 
   const defaultMarks: Record<QuestionType, { correct: number; wrong: number; partial: string }> = {
     scq:       { correct: 4, wrong: -1,  partial: "" },
@@ -67,6 +70,12 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
         setAnswerKey("");
         setQType("");
         setClientError(null);
+        setParaFile(null);
+        setParaPreview(null);
+        if (paraFileRef.current) {
+          const dt = new DataTransfer();
+          paraFileRef.current.files = dt.files;
+        }
         setFormKey((k) => k + 1); // forces uncontrolled inputs to reset
       }
     }
@@ -114,6 +123,26 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
     });
   }
 
+  function handleParaFile(f: File) {
+    setParaFile(f);
+    const url = URL.createObjectURL(f);
+    setParaPreview(url);
+    if (paraFileRef.current) {
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      paraFileRef.current.files = dt.files;
+    }
+  }
+
+  function clearPara() {
+    setParaFile(null);
+    setParaPreview(null);
+    if (paraFileRef.current) {
+      const dt = new DataTransfer();
+      paraFileRef.current.files = dt.files;
+    }
+  }
+
   const MAX_IMAGES = 40; // Cloudflare Workers: ~50 subrequest limit; images + 5 DB ops must stay under it
   const answerCount = countAnswerLines(answerKey);
   const countOk  = files.length > 0 && answerCount === files.length;
@@ -132,6 +161,11 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
       setClientError(
         `${answerCount} answer line${answerCount !== 1 ? "s" : ""} but ${files.length} image${files.length !== 1 ? "s" : ""} — counts must match`
       );
+      return;
+    }
+
+    if (qType === "paragraph" && !paraFile) {
+      setClientError("A passage image is required for paragraph-based sections");
       return;
     }
 
@@ -177,6 +211,9 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
           // @ts-ignore
           webkitdirectory="" multiple style={{ display: "none" }}
           onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
+        {/* Hidden passage image input (paragraph type only) */}
+        <input ref={paraFileRef} type="file" name="paragraph_image" accept="image/*" style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleParaFile(f); }} />
 
         {error && (
           <div className="alert-error" style={{ marginBottom: 16, fontSize: 13 }}>{error}</div>
@@ -243,6 +280,43 @@ export function AddSectionForm({ testId: _ }: { testId: string }) {
             </p>
           )}
         </div>
+
+        {/* ── Paragraph passage uploader ── */}
+        {qType === "paragraph" && (
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelStyle}>Passage image *</label>
+            {paraPreview ? (
+              <div style={{ position: "relative", display: "inline-block", marginTop: 6 }}>
+                <img
+                  src={paraPreview}
+                  alt="Passage preview"
+                  style={{ maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6, border: "1px solid var(--c-border)", display: "block" }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{ position: "absolute", top: 6, right: 6 }}
+                  onClick={clearPara}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div
+                className="upload-zone"
+                style={{ minHeight: 100, cursor: "pointer", marginTop: 6 }}
+                onClick={() => paraFileRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleParaFile(f); }}
+              >
+                <div className="upload-zone-inner">
+                  <p className="upload-zone-text">Click or drag the passage image here</p>
+                  <p className="upload-zone-sub">PNG, JPG, WEBP</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Images + answer key ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>

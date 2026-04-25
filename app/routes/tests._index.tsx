@@ -598,7 +598,7 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
           {tests.length > 0 && (
             <div style={{ display: "flex", gap: 8 }}>
               <Link to="/tests/generate" className="btn btn-ghost btn-sm">
-                <IconFlash size={14} /> Generate
+                <IconLayers size={14} /> Grand Layer
               </Link>
               <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
                 <IconPlus size={14} /> New test

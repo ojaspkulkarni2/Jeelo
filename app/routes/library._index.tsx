@@ -71,13 +71,28 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   if (intent === "delete_folder") {
     const id = String(formData.get("id") ?? "");
-    const folderQueue = [id]; const allImageUrls: string[] = [];
+    const folderQueue = [id];
+    const allImageUrls: string[] = [];
+    const allQuestionIds: string[] = [];
+
     while (folderQueue.length > 0) {
       const currentId = folderQueue.shift()!;
-      const { data: qs } = await supabase.from("questions").select("image_url").eq("folder_id", currentId).eq("owner_id", user.id);
-      for (const q of qs ?? []) { if (q.image_url) allImageUrls.push(q.image_url); }
+      const { data: qs } = await supabase
+        .from("questions")
+        .select("id, image_url")
+        .eq("folder_id", currentId)
+        .eq("owner_id", user.id);
+      for (const q of qs ?? []) {
+        allQuestionIds.push(q.id);
+        if (q.image_url) allImageUrls.push(q.image_url);
+      }
       const { data: subs } = await supabase.from("folders").select("id").eq("parent_id", currentId).eq("owner_id", user.id);
       for (const sub of subs ?? []) folderQueue.push(sub.id);
+    }
+
+    // Delete question rows first (while folder_id is still set), then the folder
+    if (allQuestionIds.length > 0) {
+      await supabase.from("questions").delete().in("id", allQuestionIds).eq("owner_id", user.id);
     }
     await supabase.from("folders").delete().eq("id", id).eq("owner_id", user.id);
     await Promise.all(allImageUrls.map((url) => deleteImage(url, env)));
