@@ -18,9 +18,9 @@ function MobileNav({ pathname }: { pathname: string }) {
   }
   return (
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      <Link to="/library"   className={`mobile-nav-item${isActive("/library")   ? " active" : ""}`} aria-label="Library"><IconLibrary size={22} /></Link>
       <Link to="/all-tests" className={`mobile-nav-item${isActive("/all-tests") ? " active" : ""}`} aria-label="Discover"><IconDiscover size={22} /></Link>
       <Link to="/tests"     className={`mobile-nav-item${isActive("/tests")     ? " active" : ""}`} aria-label="Tests"><IconLayers size={22} /></Link>
+      <Link to="/library"   className={`mobile-nav-item${isActive("/library")   ? " active" : ""}`} aria-label="Library"><IconLibrary size={22} /></Link>
       <Link to="/settings"  className={`mobile-nav-item${isActive("/settings")  ? " active" : ""}`} aria-label="Settings"><IconSettings size={22} /></Link>
     </nav>
   );
@@ -64,19 +64,9 @@ export function Sidebar({ displayName }: SidebarProps) {
   return (
     <>
       <aside className="sidebar">
-        <Link to="/library" className="sb-logo">Jeelo</Link>
+        <Link to="/all-tests" className="sb-logo">Jeelo</Link>
 
         <nav className="sb-nav">
-          <Link to="/library" className={`sb-link${isActive("/library") ? " active" : ""}`}>
-            <IconLibrary />
-            Library
-          </Link>
-
-          <Link to="/paragraphs/new" className={`sb-link${isActive("/paragraphs") ? " active" : ""}`}>
-            <IconParagraph />
-            Paragraphs
-          </Link>
-
           <Link to="/all-tests" className={`sb-link${isActive("/all-tests") ? " active" : ""}`}>
             <IconDiscover />
             Discover
@@ -85,6 +75,16 @@ export function Sidebar({ displayName }: SidebarProps) {
           <Link to="/tests" className={`sb-link${isActive("/tests") ? " active" : ""}`}>
             <IconLayers />
             My Tests
+          </Link>
+
+          <Link to="/library" className={`sb-link${isActive("/library") ? " active" : ""}`}>
+            <IconLibrary />
+            Library
+          </Link>
+
+          <Link to="/paragraphs/new" className={`sb-link${isActive("/paragraphs") ? " active" : ""}`}>
+            <IconParagraph />
+            Paragraphs
           </Link>
 
           <Link to="/settings" className={`sb-link${isActive("/settings") ? " active" : ""}`}>

@@ -5,7 +5,7 @@ import { IconLayers, IconTests, IconCheck, IconPlay, IconTarget, IconGraph, Icon
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const user = await getUser(request, context.cloudflare.env);
-  if (user) throw redirect("/library");
+  if (user) throw redirect("/all-tests");
   return null;
 }
 

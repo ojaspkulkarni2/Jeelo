@@ -159,10 +159,18 @@ export async function action({ request, context }: Route.ActionArgs) {
     correctAnswers.push(result.answer);
   }
 
-  // ── Upload all images in parallel ──
-  const uploads = await Promise.all(
-    imageFiles.map((f) => uploadImage(f, user.id, env))
-  );
+  // ── Upload all images in serial batches of 20 ──
+  // Cloudflare Workers cap at 50 subrequests per invocation. requireUser
+  // already consumes ~3, leaving ~47. Uploading everything in parallel
+  // with Promise.all blows past this the moment someone uploads 48+ images.
+  // Chunking at 20 keeps us safely under the limit while still being fast.
+  const CHUNK = 20;
+  const uploads: ({ publicUrl: string } | { error: string })[] = [];
+  for (let i = 0; i < imageFiles.length; i += CHUNK) {
+    const chunk = imageFiles.slice(i, i + CHUNK);
+    const results = await Promise.all(chunk.map((f) => uploadImage(f, user.id, env)));
+    uploads.push(...results);
+  }
 
   const failIdx = uploads.findIndex((u) => "error" in u);
   if (failIdx !== -1)

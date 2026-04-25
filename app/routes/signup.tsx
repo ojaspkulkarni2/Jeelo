@@ -10,7 +10,7 @@ import { IconEye, IconEyeOff, IconCheck, IconLayers } from "~/components/icons";
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
   const user = await getUser(request, env);
-  if (user) throw redirect("/library");
+  if (user) throw redirect("/all-tests");
   return null;
 }
 
@@ -42,7 +42,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   session.set("access_token", result.access_token);
   session.set("refresh_token", result.refresh_token);
 
-  return redirect("/library", {
+  return redirect("/all-tests", {
     headers: { "Set-Cookie": await commitSession(session) },
   });
 }

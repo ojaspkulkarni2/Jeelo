@@ -4,6 +4,7 @@ import { redirect, Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/route";
 import { requireUser } from "~/lib/auth.server";
 import { createServerClient } from "~/lib/supabase.server";
+import { uploadImage } from "~/lib/storage.server";
 import { Sidebar } from "~/components/sidebar";
 import { IconChevronRight } from "~/components/icons";
 import type { QuestionType, Subject, ExamType } from "~/lib/database.types";
@@ -193,23 +194,65 @@ export async function action({ params, request, context }: Route.ActionArgs) {
     const name          = String(formData.get("name") ?? "").trim();
     const questionType  = String(formData.get("question_type") ?? "") as QuestionType;
     const subject       = String(formData.get("subject") ?? "") as Subject;
+    const chapter       = String(formData.get("chapter") ?? "").trim();
     const marksCorrect  = parseFloat(String(formData.get("marks_correct") ?? "4"));
     const marksWrong    = parseFloat(String(formData.get("marks_wrong") ?? "0"));
     const marksPartialRaw = formData.get("marks_partial");
     const marksPartial  = questionType === "mcq" && marksPartialRaw
       ? parseFloat(String(marksPartialRaw))
       : null;
+    const answerKey     = String(formData.get("answer_key") ?? "");
+    const imageFiles    = (formData.getAll("images") as File[]).filter((f) => f.size > 0);
 
-    if (!name || !questionType || !subject) return null;
+    if (!name || !questionType || !subject || !chapter) return null;
     if (isNaN(marksCorrect) || isNaN(marksWrong)) return null;
-    // marksPartial is optional (MCQ only), but if supplied it must be a real number
     if (marksPartial !== null && isNaN(marksPartial)) return null;
 
-    // Negative marking must be stored as a negative number.
-    // Coerce here so a user typing "1" instead of "-1" is corrected silently.
     const marksWrongNormalised = marksWrong > 0 ? -marksWrong : marksWrong;
 
-    // Get next display_order
+    // ── Parse answer key (only if images were uploaded) ─────────
+    type ParsedAnswer = { answer: unknown } | { error: string };
+
+    function parseAnswerLine(raw: string, type: QuestionType): ParsedAnswer {
+      const line = raw.trim().toLowerCase();
+      if (type === "scq" || type === "paragraph") {
+        if (!["a","b","c","d"].includes(line)) return { error: `"${raw}" — use a, b, c, or d` };
+        return { answer: [line.toUpperCase()] };
+      }
+      if (type === "mcq") {
+        const opts = line.split(/[\s,]+/).filter(Boolean);
+        if (!opts.length) return { error: "Empty line" };
+        const bad = opts.find((o) => !["a","b","c","d"].includes(o));
+        if (bad) return { error: `"${bad}" is not a valid option` };
+        return { answer: [...new Set(opts)].sort().map((o) => o.toUpperCase()) };
+      }
+      if (type === "integer") {
+        const n = parseInt(line, 10);
+        if (isNaN(n)) return { error: `"${raw}" is not a valid integer` };
+        return { answer: n };
+      }
+      if (type === "numerical") {
+        const n = parseFloat(line);
+        if (isNaN(n)) return { error: `"${raw}" is not a valid number` };
+        return { answer: n };
+      }
+      return { error: "Unknown type" };
+    }
+
+    let correctAnswers: unknown[] = [];
+    if (imageFiles.length > 0) {
+      const answerLines = answerKey.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (answerLines.length !== imageFiles.length) {
+        return { error: `${answerLines.length} answer${answerLines.length !== 1 ? "s" : ""} but ${imageFiles.length} image${imageFiles.length !== 1 ? "s" : ""} — counts must match` };
+      }
+      for (let i = 0; i < answerLines.length; i++) {
+        const result = parseAnswerLine(answerLines[i], questionType);
+        if ("error" in result) return { error: `Answer ${i + 1}: ${result.error}` };
+        correctAnswers.push(result.answer);
+      }
+    }
+
+    // ── Create section ───────────────────────────────────────────
     const { data: last } = await supabase
       .from("test_sections")
       .select("display_order")
@@ -218,16 +261,68 @@ export async function action({ params, request, context }: Route.ActionArgs) {
       .limit(1)
       .maybeSingle();
 
-    await supabase.from("test_sections").insert({
-      test_id: testId,
-      name,
-      question_type: questionType,
-      subject,
-      marks_correct: marksCorrect,
-      marks_wrong: marksWrongNormalised,
-      marks_partial: marksPartial,
-      display_order: (last?.display_order ?? 0) + 1,
-    });
+    const { data: sec, error: secErr } = await supabase
+      .from("test_sections")
+      .insert({
+        test_id: testId,
+        name,
+        question_type: questionType,
+        subject,
+        marks_correct: marksCorrect,
+        marks_wrong: marksWrongNormalised,
+        marks_partial: marksPartial,
+        display_order: (last?.display_order ?? 0) + 1,
+      })
+      .select("id")
+      .single();
+
+    if (secErr || !sec) return null;
+
+    // ── Upload images + insert questions (if any) ─────────────────
+    if (imageFiles.length > 0) {
+      const CHUNK = 20;
+      const uploads: ({ publicUrl: string } | { error: string })[] = [];
+      for (let i = 0; i < imageFiles.length; i += CHUNK) {
+        const chunk = imageFiles.slice(i, i + CHUNK);
+        const results = await Promise.all(chunk.map((f) => uploadImage(f, user.id, env)));
+        uploads.push(...results);
+      }
+
+      const failIdx = uploads.findIndex((u) => "error" in u);
+      if (failIdx !== -1) {
+        return { error: `Upload failed for image ${failIdx + 1}: ${(uploads[failIdx] as { error: string }).error}` };
+      }
+
+      // Insert into questions table (tagged with subject/chapter/type for the bank)
+      const { data: insertedQs, error: qErr } = await supabase
+        .from("questions")
+        .insert(
+          (uploads as { publicUrl: string }[]).map((u, i) => ({
+            owner_id: user.id,
+            image_url: u.publicUrl,
+            type: questionType,
+            subject,
+            chapter,
+            correct_answer: correctAnswers[i],
+            paragraph_id: null,
+            folder_id: null,
+            is_shared: false,
+          }))
+        )
+        .select("id");
+
+      if (!qErr && insertedQs && insertedQs.length > 0) {
+        // Link questions to this section in display order
+        await supabase.from("test_questions").insert(
+          insertedQs.map((q, idx) => ({
+            test_section_id: sec.id,
+            question_id: q.id,
+            display_order: idx + 1,
+          }))
+        );
+      }
+    }
+
     return null;
   }
 
@@ -304,6 +399,13 @@ export async function action({ params, request, context }: Route.ActionArgs) {
       question_id: questionId,
       display_order: (last?.display_order ?? 0) + 1,
     });
+
+    // If this came from a fetcher (XHR), return JSON so the picker can update
+    // optimistically without a full page reload.
+    const acceptHeader = request.headers.get("Accept") ?? "";
+    if (acceptHeader.includes("application/json")) {
+      return { ok: true, intent: "add_question", questionId, sectionId };
+    }
 
     // Stay on picker for this section so user can keep adding
     throw redirect(`/tests/${testId}?picking=${sectionId}`);
