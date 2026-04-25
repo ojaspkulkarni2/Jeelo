@@ -301,3 +301,13 @@ export function IconGraph(props: IconProps) {
     </Icon>
   );
 }
+
+export function IconParagraph(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="3" width="14" height="14" rx="2" />
+      <path d="M7 7h6M7 10h6M7 13h4" />
+      <path d="M11 7v6" />
+    </Icon>
+  );
+}

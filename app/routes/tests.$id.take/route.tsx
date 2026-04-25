@@ -37,11 +37,31 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
       marks_correct, marks_wrong, marks_partial, display_order,
       test_questions(
         display_order,
-        questions(id, image_url, type, subject, chapter, correct_answer)
+        questions(id, image_url, type, subject, chapter, correct_answer, paragraph_id)
       )
     `)
     .eq("test_id", testId)
     .order("display_order", { ascending: true });
+
+  // Collect paragraph IDs needed across all sections
+  const paragraphIds = new Set<string>();
+  for (const s of (rawSections ?? []) as any[]) {
+    for (const tq of (s.test_questions ?? []) as any[]) {
+      if (tq.questions?.paragraph_id) paragraphIds.add(tq.questions.paragraph_id);
+    }
+  }
+
+  // Batch-fetch paragraph images
+  const paragraphImageMap = new Map<string, string>();
+  if (paragraphIds.size > 0) {
+    const { data: paragraphs } = await supabase
+      .from("paragraphs")
+      .select("id, image_url")
+      .in("id", Array.from(paragraphIds));
+    for (const p of (paragraphs ?? []) as any[]) {
+      paragraphImageMap.set(p.id, p.image_url);
+    }
+  }
 
   const sections: Section[] = (rawSections ?? []).map((s: any) => ({
     id: s.id,
@@ -54,7 +74,14 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     display_order: s.display_order,
     questions: ((s.test_questions ?? []) as any[])
       .sort((a: any, b: any) => a.display_order - b.display_order)
-      .map((tq: any) => ({ display_order: tq.display_order, ...(tq.questions as QuestionRow) })),
+      .map((tq: any) => ({
+        display_order: tq.display_order,
+        ...(tq.questions as QuestionRow),
+        paragraph_id: tq.questions?.paragraph_id ?? null,
+        paragraph_image_url: tq.questions?.paragraph_id
+          ? (paragraphImageMap.get(tq.questions.paragraph_id) ?? null)
+          : null,
+      })),
   }));
 
   let { data: attempt } = await supabase
@@ -227,7 +254,9 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
     try { return !!localStorage.getItem(`jeelo_answers_${attempt.id}`); } catch { return false; }
   });
 
-  const [darkMode,         setDarkMode]          = useState(false);
+  const [darkMode,         setDarkMode]          = useState(() => {
+    try { return localStorage.getItem("jeelo-theme") === "dark"; } catch { return false; }
+  });
   const [fontSize,         setFontSize]          = useState<13 | 16 | 20>(13);
   const [cursorTrail,      setCursorTrail]       = useState(false);
   const [cursorSize,       setCursorSize]        = useState<12 | 16 | 22>(12);
@@ -698,6 +727,20 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
                 </div>
               )}
 
+              {/* Paragraph passage image (shown above question for paragraph-type) */}
+              {currentQ?.paragraph_image_url && (
+                <div style={{ marginBottom: 16, border: `1px solid ${darkMode ? "#444" : "#ddd"}`, borderRadius: 4, overflow: "hidden", background: darkMode ? "#111" : "#fafafa" }}>
+                  <div style={{ padding: "6px 12px", background: darkMode ? "#1e2a3a" : "#e8f0fb", borderBottom: `1px solid ${darkMode ? "#333" : "#c5d5ee"}`, fontSize: 11, fontWeight: 600, color: darkMode ? "#90b4d4" : "#1a5296", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    Passage
+                  </div>
+                  <img
+                    src={currentQ.paragraph_image_url}
+                    alt="Passage"
+                    style={{ maxWidth: "100%", width: "100%", height: "auto", display: "block", objectFit: "contain" }}
+                  />
+                </div>
+              )}
+
               {/* Question image */}
               {currentQ && (
                 <div style={{ marginBottom: 12, overflow: "hidden", maxWidth: "100%" }}>
@@ -858,7 +901,11 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
               <span style={{ fontSize: 12, color: darkMode ? "#bbb" : "#444" }}>Dark Mode</span>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ fontSize: 12 }}>☀</span>
-                <div onClick={() => setDarkMode(v => !v)}
+                <div onClick={() => setDarkMode(v => {
+                const next = !v;
+                try { localStorage.setItem("jeelo-theme", next ? "dark" : "light"); document.documentElement.classList.toggle("dark", next); } catch {}
+                return next;
+              })}
                   style={{ width: 38, height: 21, background: darkMode ? "#1a6eb5" : "#ccc", borderRadius: 11, position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
                   <div style={{ width: 17, height: 17, background: "#fff", borderRadius: "50%", position: "absolute", top: 2, left: darkMode ? 19 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                 </div>

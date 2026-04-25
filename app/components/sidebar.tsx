@@ -9,6 +9,7 @@ import {
   IconSun,
   IconMoon,
   IconSettings,
+  IconParagraph,
 } from "./icons";
 
 function MobileNav({ pathname }: { pathname: string }) {
@@ -69,6 +70,11 @@ export function Sidebar({ displayName }: SidebarProps) {
           <Link to="/library" className={`sb-link${isActive("/library") ? " active" : ""}`}>
             <IconLibrary />
             Library
+          </Link>
+
+          <Link to="/paragraphs/new" className={`sb-link${isActive("/paragraphs") ? " active" : ""}`}>
+            <IconParagraph />
+            Paragraphs
           </Link>
 
           <Link to="/all-tests" className={`sb-link${isActive("/all-tests") ? " active" : ""}`}>

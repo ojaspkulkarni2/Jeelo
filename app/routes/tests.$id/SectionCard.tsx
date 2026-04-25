@@ -58,6 +58,7 @@ export function SectionCard({
   isPicking,
   pickerQuestions,
   pickerFolders,
+  pickerUsedElsewhere,
   onOpenPicker,
   onClosePicker,
 }: {
@@ -66,6 +67,7 @@ export function SectionCard({
   isPicking: boolean;
   pickerQuestions: QuestionRow[];
   pickerFolders: { id: string; name: string; displayName: string; count: number }[];
+  pickerUsedElsewhere: QuestionRow[];
   onOpenPicker: () => void;
   onClosePicker: () => void;
 }) {
@@ -171,6 +173,7 @@ export function SectionCard({
           testId={testId}
           questions={pickerQuestions}
           folders={pickerFolders}
+          usedElsewhere={pickerUsedElsewhere}
           onClose={onClosePicker}
         />
       )}

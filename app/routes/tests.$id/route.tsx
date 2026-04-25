@@ -62,13 +62,20 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const pickingSectionId = url.searchParams.get("picking") ?? null;
   let pickerQuestions: QuestionRow[] = [];
+  let pickerUsedElsewhere: QuestionRow[] = [];
   let pickerFolders: { id: string; name: string; displayName: string; count: number }[] = [];
 
   if (pickingSectionId) {
     const section = sections.find((s) => s.id === pickingSectionId);
     if (section) {
-      const addedIds = section.questions.map((q) => q.id);
-      let query = supabase
+      // Questions already in THIS section are fully excluded
+      const thisSecIds = new Set(section.questions.map((q) => q.id));
+      // Questions in OTHER sections of this test — soft-hidden (shown via toggle)
+      const otherSecIds = new Set(
+        sections.flatMap((s) => s.id !== section.id ? s.questions.map((q) => q.id) : [])
+      );
+
+      const { data: qs } = await supabase
         .from("questions")
         .select("id, image_url, type, subject, chapter, folder_id, folders(id, name, parent_id, parent:parent_id(id, name))")
         .eq("owner_id", user.id)
@@ -76,18 +83,17 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
         .eq("subject", section.subject)
         .order("created_at", { ascending: false });
 
-      if (addedIds.length > 0) {
-        query = query.not("id", "in", `(${addedIds.join(",")})`);
-      }
-
-      const { data: qs } = await query;
       const allQs = (qs ?? []) as any[];
+      // Split into fresh vs already-used-in-another-section
+      const freshQs = allQs.filter((q: any) => !thisSecIds.has(q.id) && !otherSecIds.has(q.id));
+      const usedQs  = allQs.filter((q: any) => !thisSecIds.has(q.id) && otherSecIds.has(q.id));
 
-      pickerQuestions = allQs.map(({ folders: _f, ...rest }: any) => rest) as QuestionRow[];
+      pickerQuestions     = freshQs.map(({ folders: _f, ...rest }: any) => rest) as QuestionRow[];
+      pickerUsedElsewhere = usedQs.map(({ folders: _f, ...rest }: any) => rest) as QuestionRow[];
 
-      // Build folder list with parent info for disambiguation
+      // Build folder list from fresh questions only
       const folderMap = new Map<string, { id: string; name: string; parentName: string | null; count: number }>();
-      for (const q of allQs) {
+      for (const q of freshQs) {
         if (!q.folder_id || !q.folders) continue;
         const folder = q.folders as any;
         const prev = folderMap.get(q.folder_id);
@@ -126,6 +132,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     pickingSectionId,
     pickerQuestions,
     pickerFolders,
+    pickerUsedElsewhere,
   };
 }
 
@@ -431,7 +438,7 @@ export async function action({ params, request, context }: Route.ActionArgs) {
 // ── Component ──────────────────────────────────────────────────
 
 export default function TestEditor({ loaderData }: Route.ComponentProps) {
-  const { user, test, sections, pickingSectionId, pickerQuestions, pickerFolders } = loaderData;
+  const { user, test, sections, pickingSectionId, pickerQuestions, pickerFolders, pickerUsedElsewhere } = loaderData;
   const [, setSearchParams] = useSearchParams();
 
   function openPicker(sectionId: string) {
@@ -477,6 +484,7 @@ export default function TestEditor({ loaderData }: Route.ComponentProps) {
                   isPicking={pickingSectionId === section.id}
                   pickerQuestions={pickingSectionId === section.id ? pickerQuestions : []}
                   pickerFolders={pickingSectionId === section.id ? pickerFolders : []}
+                  pickerUsedElsewhere={pickingSectionId === section.id ? pickerUsedElsewhere : []}
                   onOpenPicker={() => openPicker(section.id)}
                   onClosePicker={closePicker}
                 />

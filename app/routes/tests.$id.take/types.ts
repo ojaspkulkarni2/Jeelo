@@ -7,6 +7,8 @@ export type QuestionRow = {
   subject: string;
   chapter: string;
   correct_answer: unknown;
+  paragraph_id: string | null;
+  paragraph_image_url: string | null;
 };
 
 export type SectionQuestion = QuestionRow & { display_order: number };
