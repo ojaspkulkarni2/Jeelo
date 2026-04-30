@@ -583,7 +583,7 @@ export default function TestGeneratePage({ loaderData }: Route.ComponentProps) {
           <div className="pg-head" style={{ paddingBottom: 0 }}>
             <div>
               <nav className="result-breadcrumb" style={{ marginBottom: 6 }}>
-                <Link to="/tests" className="result-breadcrumb-link">My Tests</Link>
+                <Link to="/discover?mine=1" className="result-breadcrumb-link">My Tests</Link>
                 <IconChevronRight size={13} />
                 <span>Grand Layer</span>
               </nav>
@@ -601,7 +601,7 @@ export default function TestGeneratePage({ loaderData }: Route.ComponentProps) {
             <div className="lib-empty" style={{ marginTop: 16 }}>
               <p className="lib-empty-title">No completed tests yet</p>
               <p className="lib-empty-body">Take at least one test — then come back to build a Grand Layer from your mistakes.</p>
-              <Link to="/tests" className="btn btn-primary">Go to My Tests →</Link>
+              <Link to="/discover?mine=1" className="btn btn-primary">Go to My Tests →</Link>
             </div>
           ) : (
             <>

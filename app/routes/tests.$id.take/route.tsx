@@ -27,7 +27,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     .eq("id", testId)
     .single();
 
-  if (testError || !test) throw redirect("/tests");
+  if (testError || !test) throw redirect("/discover");
   if (!test.is_published) throw redirect(`/tests/${testId}`);
 
   const { data: rawSections } = await supabase
@@ -102,7 +102,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     attempt = newAttempt;
   }
 
-  if (!attempt) throw redirect("/tests");
+  if (!attempt) throw redirect("/discover");
 
   return { user, test: test as Test, sections, attempt: attempt as Attempt };
 }
@@ -188,6 +188,42 @@ export async function action({ params, request, context }: Route.ActionArgs) {
       submitted_at: new Date().toISOString(),
       score_breakdown: { total: grandTotal, max_marks: maxMarks, sections: scoredSections, time_taken_seconds: isNaN(timeTakenSeconds) ? 0 : timeTakenSeconds } as any,
     }).eq("id", attempt.id);
+
+    // ── Mark practice_done for each chapter covered by this test ──
+    // Also mark curated_done if score >= 60% of max marks
+    const pctScore = maxMarks > 0 ? grandTotal / maxMarks : 0;
+    const now = new Date().toISOString();
+
+    // Collect chapter IDs from questions in this test
+    const { data: chapterRows } = await supabase
+      .from("test_questions")
+      .select("questions!question_id(chapter_id)")
+      .in("section_id", (rawSections ?? []).map((s: any) => s.id));
+
+    const chapterIds = [...new Set(
+      (chapterRows ?? [])
+        .map((r: any) => r.questions?.chapter_id)
+        .filter(Boolean)
+    )];
+
+    if (chapterIds.length > 0) {
+      for (const chId of chapterIds) {
+        const upsertPayload: Record<string, any> = {
+          user_id:    user.id,
+          chapter_id: chId,
+          practice_done:    true,
+          practice_done_at: now,
+          last_activity:    now,
+        };
+        if (pctScore >= 0.6) {
+          upsertPayload.curated_done    = true;
+          upsertPayload.curated_done_at = now;
+        }
+        await supabase.from("chapter_progress").upsert(upsertPayload, {
+          onConflict: "user_id,chapter_id",
+        });
+      }
+    }
 
     throw redirect(`/tests/${testId}/result`);
   }
@@ -900,7 +936,7 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
               <span style={{ fontSize: 12, color: darkMode ? "#bbb" : "#444" }}>Dark Mode</span>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <span style={{ fontSize: 12 }}>☀</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#f0a500" }}><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
                 <div onClick={() => setDarkMode(v => {
                 const next = !v;
                 try { localStorage.setItem("jeelo-theme", next ? "dark" : "light"); document.documentElement.classList.toggle("dark", next); } catch {}
@@ -909,7 +945,7 @@ export default function TakeTest({ loaderData }: Route.ComponentProps) {
                   style={{ width: 38, height: 21, background: darkMode ? "#1a6eb5" : "#ccc", borderRadius: 11, position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
                   <div style={{ width: 17, height: 17, background: "#fff", borderRadius: "50%", position: "absolute", top: 2, left: darkMode ? 19 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                 </div>
-                <span style={{ fontSize: 12 }}>🌙</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style={{ color: "#7b8fd4" }}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>

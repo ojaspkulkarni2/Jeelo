@@ -13,6 +13,11 @@ export default defineConfig({
     reactRouter(),
   ],
   resolve: {
+    // dedupe forces Vite to always use one copy of React — the correct fix
+    // for "useContext null" / "module is not defined" caused by duplicate instances.
+    // Do NOT use path aliases pointing at node_modules/react — that resolves to
+    // the CJS index.js and breaks ESM bundling.
+    dedupe: ["react", "react-dom", "react-router"],
     alias: {
       "~": path.resolve(__dirname, "./app"),
     },

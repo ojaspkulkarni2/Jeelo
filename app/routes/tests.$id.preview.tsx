@@ -53,7 +53,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     .eq("id", testId)
     .single();
 
-  if (error || !test) throw redirect("/tests");
+  if (error || !test) throw redirect("/discover");
 
   const isOwner = (test as any).owner_id === user.id;
 

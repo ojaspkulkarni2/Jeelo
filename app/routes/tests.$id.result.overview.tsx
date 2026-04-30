@@ -121,7 +121,7 @@ export default function ResultOverviewPage({ loaderData }: Route.ComponentProps)
         <div className="pg-head">
           <div>
             <div className="result-breadcrumb">
-              <Link to="/tests" className="result-breadcrumb-link">My Tests</Link>
+              <Link to="/discover?mine=1" className="result-breadcrumb-link">My Tests</Link>
               <IconChevronRight size={13} />
               <span>{result.test_title}</span>
               {result.total_layers > 1 && (
@@ -271,7 +271,7 @@ export default function ResultOverviewPage({ loaderData }: Route.ComponentProps)
           )}
 
           <div className="ro-cta-row">
-            <Link to="/tests" className="btn btn-primary">
+            <Link to="/discover?mine=1" className="btn btn-primary">
               Back to My Tests
             </Link>
           </div>

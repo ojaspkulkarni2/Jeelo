@@ -203,7 +203,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     return data({ error: dbError.message }, { status: 500 });
 
   // Redirect back to the folder they came from, or library root
-  const destination = folderId ? `/library/folders/${folderId}` : "/library";
+  const destination = "/discover";
   return redirect(destination);
 }
 
@@ -294,11 +294,11 @@ export default function NewQuestion({
         <div className="pg-head">
           <div>
             <nav className="result-breadcrumb" style={{ marginBottom: 6 }}>
-              <Link to="/library" className="result-breadcrumb-link">Library</Link>
+              <Link to="/discover" className="result-breadcrumb-link">Library</Link>
               {folderId && folderName && (
                 <>
                   <IconChevronRight size={13} />
-                  <Link to={`/library/folders/${folderId}`} className="result-breadcrumb-link">{folderName}</Link>
+                  <Link to="/discover" className="result-breadcrumb-link">{folderName}</Link>
                 </>
               )}
               <IconChevronRight size={13} />
@@ -480,7 +480,7 @@ export default function NewQuestion({
                   style={{ width: "100%", justifyContent: "center", opacity: files.length === 0 ? 0.5 : 1 }}>
                   {files.length === 0 ? "Upload images first" : `Save ${files.length} question${files.length !== 1 ? "s" : ""}`}
                 </button>
-                <Link to={folderId ? `/library/folders/${folderId}` : "/library"}
+                <Link to="/discover"
                   className="btn btn-ghost" style={{ width: "100%", justifyContent: "center" }}>
                   Cancel
                 </Link>

@@ -24,6 +24,7 @@ export type SubjectStats = {
 export type LeaderboardEntry = {
   student_id: string;
   display_name: string;
+  username: string | null;
   score: number;
   max_marks: number;
   correct: number;

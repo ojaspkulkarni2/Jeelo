@@ -29,7 +29,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     .eq("owner_id", user.id)
     .single();
 
-  if (testError || !test) throw redirect("/tests");
+  if (testError || !test) throw redirect("/discover");
 
   // Sections with their questions (3-level join)
   const { data: rawSections } = await supabase
@@ -152,7 +152,7 @@ export async function action({ params, request, context }: Route.ActionArgs) {
     .eq("id", testId)
     .eq("owner_id", user.id)
     .single();
-  if (!test) throw redirect("/tests");
+  if (!test) throw redirect("/discover");
 
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
@@ -183,9 +183,17 @@ export async function action({ params, request, context }: Route.ActionArgs) {
     return null;
   }
 
+  if (intent === "set_visibility") {
+    const visibility = String(formData.get("visibility") ?? "public");
+    if (["public", "invite_only", "private"].includes(visibility)) {
+      await supabase.from("tests").update({ visibility }).eq("id", testId);
+    }
+    return null;
+  }
+
   if (intent === "delete_test") {
     await supabase.from("tests").delete().eq("id", testId);
-    throw redirect("/tests");
+    throw redirect("/discover?mine=1");
   }
 
   // ── Section-level ───────────────────────────────────────
@@ -593,7 +601,7 @@ export default function TestEditor({ loaderData }: Route.ComponentProps) {
           <div className="pg-head" style={{ paddingBottom: 0 }}>
             <div>
               <nav className="result-breadcrumb" style={{ marginBottom: 6 }}>
-                <Link to="/tests" className="result-breadcrumb-link">My Tests</Link>
+                <Link to="/discover?mine=1" className="result-breadcrumb-link">My Tests</Link>
                 <IconChevronRight size={13} />
                 <span>{test.title}</span>
               </nav>

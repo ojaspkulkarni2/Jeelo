@@ -1,4 +1,6 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+// NOTE: Meta cannot be used in ErrorBoundary — it calls useContext(FrameworkContext)
+// which is null outside the normal app tree. The error page uses a static <title> instead.
 import { useState, useEffect, useCallback } from "react";
 import "./styles/global.css";
 import "./styles/global-additions.css";
@@ -6,6 +8,18 @@ import { useRouteError } from "react-router";
 
 export function ErrorBoundary() {
   const error = useRouteError() as any;
+
+  // Re-apply saved theme — inline <script> only fires on full-page load,
+  // not when React mounts this boundary during a client-side navigation error.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("jeelo-theme") === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    } catch (_) {}
+  }, []);
   return (
     <html>
       <head>
@@ -13,7 +27,7 @@ export function ErrorBoundary() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Something went wrong · Jeelo</title>
         {/* Detect system/stored theme before first paint — same logic as Layout */}
-        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var s=localStorage.getItem('jeelo-theme');var d=window.matchMedia('(prefers-color-scheme:dark)').matches;if(s==='dark'||(s===null&&d))document.documentElement.classList.add('dark')}catch(e){}})()` }} />
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{if(localStorage.getItem('jeelo-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}})()` }} />
         <style dangerouslySetInnerHTML={{ __html: `
           *{box-sizing:border-box}
           body{margin:0;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fdf8f5;transition:background .25s}
@@ -89,7 +103,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Anti-FOUC: apply dark class before first paint */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem('jeelo-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(s==='dark'||(s===null&&d))document.documentElement.classList.add('dark')}catch(e){}})()`,
+            __html: `(function(){try{var s=localStorage.getItem('jeelo-theme');if(s==='dark')document.documentElement.classList.add('dark')}catch(e){}})()`,
           }}
         />
       </head>

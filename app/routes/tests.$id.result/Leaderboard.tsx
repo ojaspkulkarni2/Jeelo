@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import type { LeaderboardEntry } from "./types";
 import { formatTime, scoreColour } from "./rank-estimator";
 
@@ -27,10 +28,16 @@ export function Leaderboard({ entries, testMaxMarks }: { entries: LeaderboardEnt
           return (
             <div key={e.student_id} className={`lb-row${e.is_me ? " lb-row-me" : ""}${i === 0 ? " lb-row-top" : ""}`}>
               <span className="lb-col-rank lb-rank-num">
-                {i === 0 ? "#1" : i === 1 ? "#2" : i === 2 ? "#3" : `#${i + 1}`}
+                {i === 0 ? "①" : i === 1 ? "②" : i === 2 ? "③" : `#${i + 1}`}
               </span>
               <span className="lb-col-name lb-name-cell">
-                {e.display_name}
+                {e.username && !e.is_me
+                  ? <Link to={`/u/${e.username}`} style={{ color: "inherit", textDecoration: "none", fontWeight: 600 }}
+                      onMouseEnter={ev => (ev.currentTarget.style.textDecoration = "underline")}
+                      onMouseLeave={ev => (ev.currentTarget.style.textDecoration = "none")}>
+                      {e.display_name}
+                    </Link>
+                  : e.display_name}
                 {e.is_me && <span className="lb-you-badge">you</span>}
               </span>
               <span className="lb-col-score" style={{ color: col, fontWeight: 700 }}>

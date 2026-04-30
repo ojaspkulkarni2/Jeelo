@@ -129,7 +129,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     .eq("owner_id", user.id)
     .single();
 
-  if (error || !q) throw redirect("/library");
+  if (error || !q) throw redirect("/discover");
 
   const [folderOptions, { data: paragraphs }] = await Promise.all([
     buildFolderOptions(supabase, user.id),
@@ -163,7 +163,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     .eq("id", questionId)
     .eq("owner_id", user.id)
     .single();
-  if (!existing) throw redirect("/library");
+  if (!existing) throw redirect("/discover");
 
   const formData = await request.formData();
   const subject = String(formData.get("subject") ?? "") as Subject;
@@ -225,7 +225,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   if (dbError)
     return data({ error: dbError.message }, { status: 500 });
 
-  const destination = folderId ? `/library/folders/${folderId}` : "/library";
+  const destination = "/discover";
   return redirect(destination);
 }
 
@@ -252,7 +252,7 @@ export default function EditQuestion({ loaderData, actionData }: Route.Component
     setPreviewUrl(URL.createObjectURL(file));
   }
 
-  const backUrl = q.folder_id ? `/library/folders/${q.folder_id}` : "/library";
+  const backUrl = "/discover";
 
   return (
     <div className="app-layout">
@@ -261,7 +261,7 @@ export default function EditQuestion({ loaderData, actionData }: Route.Component
         <div className="pg-head">
           <div>
             <nav className="result-breadcrumb" style={{ marginBottom: 6 }}>
-              <Link to="/library" className="result-breadcrumb-link">Library</Link>
+              <Link to="/discover" className="result-breadcrumb-link">Library</Link>
               <IconChevronRight size={13} />
               <Link to={backUrl} className="result-breadcrumb-link">
                 {q.folder_id ? "Folder" : "Root"}

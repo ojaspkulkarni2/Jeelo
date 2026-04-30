@@ -5,7 +5,7 @@ import { IconLayers, IconTests, IconCheck, IconPlay, IconTarget, IconGraph, Icon
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const user = await getUser(request, context.cloudflare.env);
-  if (user) throw redirect("/all-tests");
+  if (user) throw redirect("/feed");
   return null;
 }
 
@@ -186,17 +186,21 @@ export default function LandingPage() {
         <div style={{ animation: "fade-up 0.6s cubic-bezier(0.16,1,0.3,1) both" }}>
           <div className="land-hero-eyebrow">
             <IconLayers size={13} />
-            Layered Tests
+            JEE prep, ranked.
           </div>
 
           <h1 className="land-hero-h1">
-            Every mistake<br />becomes the<br /><em>next test.</em>
+            <em style={{ fontStyle: "normal" }}>Jee</em>
+            <span style={{ color: "var(--c-brand-500)" }}>lo</span>
+            <span style={{ fontSize: "0.55em", fontWeight: 500, color: "var(--c-text-3)", display: "block", letterSpacing: "0.01em", marginTop: 4, fontStyle: "normal" }}>
+              JEE + ELO — earn your rank.
+            </span>
           </h1>
 
           <p className="land-hero-body">
-            Take a JEE-style test. Every question you got wrong or skipped
-            is automatically compiled into a targeted Layer 2 drill.
-            Repeat until nothing slips through.
+            Theory. Your questions. Community questions. Practice test. Layered test.
+            A chapter isn't done until all five layers are done.
+            Jeelo enforces that — and your friends can see exactly where you are.
           </p>
 
           <div className="land-hero-ctas">
@@ -208,9 +212,14 @@ export default function LandingPage() {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, width: "100%", maxWidth: 460 }}>
           <img
             src="/jeelo-jumping.png"
-            alt="Jeelo mascot"
+            alt="Jeelo"
             className="land-mascot"
             draggable={false}
+            style={{ imageRendering: "auto" }}
+            onError={(e) => {
+              const img = e.target as HTMLImageElement;
+              img.style.display = "none";
+            }}
           />
           <div className="land-visual" style={{ width: "100%" }}>
             <LayeredChainVisual />
@@ -349,16 +358,37 @@ export default function LandingPage() {
               doesn't end until the work is done.
             </p>
           </div>
+
+          <div className="land-feat-card">
+            <div className="land-feat-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/>
+                <path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+                <path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/>
+                <path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/>
+                <path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/>
+                <path d="M15.5 19H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/>
+                <path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/>
+                <path d="M8.5 5H10V3.5C10 2.67 9.33 2 8.5 2S7 2.67 7 3.5 7.67 5 8.5 5z"/>
+              </svg>
+            </div>
+            <p className="land-feat-title">Arena Duels · ELO Ranking</p>
+            <p className="land-feat-body">
+              The ELO in Jeelo. Timed 1v1 duels — Bullet, Blitz, Rapid — against
+              real opponents or bots. Your ELO updates after every match. Your rank
+              is earned, not given.
+            </p>
+          </div>
         </div>
       </section>
 
       {/* Final CTA */}
       <section style={{ display: "flex", justifyContent: "center" }}>
         <div className="land-cta">
-          <h2 className="land-cta-title">Stop guessing what to revise.</h2>
+          <h2 className="land-cta-title">Every chapter. Five layers. Finished.</h2>
           <p className="land-cta-body">
-            Take your test. Hit Redo missed. Let Jeelo build the next one.
-            The loop ends when you've answered everything correctly.
+            The community surfaces the best questions. You master them
+            one chapter at a time. The map shows you — and your rivals — exactly where you stand.
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
             <Link to="/signup" className="btn btn-primary btn-lg">Create free account</Link>
@@ -368,7 +398,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="land-footer">
-        © {new Date().getFullYear()} Jeelo · Built for JEE aspirants
+        © {new Date().getFullYear()} Jeelo · Built for JEE aspirants · <a href="/about" style={{color:"inherit"}}>About</a>
       </footer>
     </div>
   );

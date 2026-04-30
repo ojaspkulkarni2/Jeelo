@@ -30,7 +30,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
   const { data: test } = await supabase
     .from("tests").select("id, title, duration_mins, is_published")
     .eq("id", testId).single();
-  if (!test) throw redirect("/tests");
+  if (!test) throw redirect("/discover");
 
   const { data: attempt } = await supabase
     .from("attempts").select("id, answers, submitted_at")
@@ -93,12 +93,34 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
   const totalWrong   = reviewQuestions.filter(q => q.result === "wrong").length;
   const totalMissed  = reviewQuestions.filter(q => q.result === "missed").length;
 
-  return { user, test, reviewQuestions, sectionMeta, totalCorrect, totalWrong, totalMissed };
+  // Aggregate how many people selected each option, per question
+  const { data: allAttempts } = await supabase
+    .from("attempts")
+    .select("answers")
+    .eq("test_id", testId)
+    .not("submitted_at", "is", null);
+
+  const totalSubmitted = (allAttempts ?? []).length;
+  const optionCounts: Record<string, Record<string, number>> = {};
+  for (const a of (allAttempts ?? []) as any[]) {
+    const ans = (a.answers ?? {}) as Record<string, { answer?: unknown }>;
+    for (const [qid, state] of Object.entries(ans)) {
+      const given = (state as any)?.answer;
+      if (!given) continue;
+      if (!optionCounts[qid]) optionCounts[qid] = {};
+      const opts = Array.isArray(given) ? given : [String(given)];
+      for (const opt of opts) {
+        optionCounts[qid][opt] = (optionCounts[qid][opt] ?? 0) + 1;
+      }
+    }
+  }
+
+  return { user, test, reviewQuestions, sectionMeta, totalCorrect, totalWrong, totalMissed, optionCounts, totalSubmitted };
 }
 
 // ── Page ────────────────────────────────────────────────────────
 export default function TestResultReview({ loaderData }: Route.ComponentProps) {
-  const { user, test, reviewQuestions, sectionMeta, totalCorrect, totalWrong, totalMissed } = loaderData;
+  const { user, test, reviewQuestions, sectionMeta, totalCorrect, totalWrong, totalMissed, optionCounts, totalSubmitted } = loaderData;
 
   useEffect(() => {
     const prev = {
@@ -278,6 +300,49 @@ export default function TestResultReview({ loaderData }: Route.ComponentProps) {
                     <p style={{ margin: "0 0 3px", fontSize: 10, fontWeight: 600, color: "#6b7280", textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>Correct Answer</p>
                     <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#15803d", wordBreak: "break-word" as const }}>{formatAnswer(currentQ.correct_answer)}</p>
                   </div>
+
+                  {/* Option distribution — SCQ/paragraph only */}
+                  {(currentQ.question_type === "scq" || currentQ.question_type === "paragraph") && totalSubmitted > 0 && (() => {
+                    const counts = optionCounts[currentQ.id] ?? {};
+                    const correctOpt = Array.isArray(currentQ.correct_answer)
+                      ? currentQ.correct_answer[0]
+                      : String(currentQ.correct_answer ?? "");
+                    return (
+                      <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 4 }}>
+                        {["A", "B", "C", "D"].map(letter => {
+                          const n = counts[letter] ?? 0;
+                          const pct = Math.round((n / totalSubmitted) * 100);
+                          const isCorrect = letter === correctOpt;
+                          const isYours = Array.isArray(currentQ.user_answer)
+                            ? (currentQ.user_answer as string[]).includes(letter)
+                            : false;
+                          return (
+                            <div key={letter} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{
+                                width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                                border: isCorrect ? "2px solid #15803d" : "1.5px solid #d1d5db",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 10, fontWeight: 700,
+                                color: isCorrect ? "#15803d" : "#6b7280",
+                                background: isCorrect ? "rgba(74,222,128,0.1)" : "transparent",
+                              }}>
+                                {letter}
+                              </span>
+                              <div style={{ flex: 1, height: 14, background: "#f3f4f6", borderRadius: 3, overflow: "hidden", position: "relative" }}>
+                                <div style={{
+                                  width: `${pct}%`, height: "100%", borderRadius: 3,
+                                  background: isCorrect ? "rgba(74,222,128,0.5)" : isYours ? "rgba(239,68,68,0.35)" : "rgba(156,163,175,0.4)",
+                                  transition: "width 0.5s ease",
+                                }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: "#6b7280", minWidth: 28, textAlign: "right" as const }}>{pct}%</span>
+                            </div>
+                          );
+                        })}
+                        <p style={{ margin: "2px 0 0", fontSize: 9, color: "#9ca3af" }}>{totalSubmitted} attempt{totalSubmitted !== 1 ? "s" : ""}</p>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );

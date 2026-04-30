@@ -1,4 +1,4 @@
-import { data, redirect, Link, Form, useFetcher, useNavigate } from "react-router";
+import { data, redirect, Link, Form, useFetcher, useNavigate, useSearchParams } from "react-router";
 import { useState, useRef, useEffect } from "react";
 import type { Route } from "./+types/tests._index";
 import { requireUser } from "~/lib/auth.server";
@@ -86,7 +86,53 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     tests.push(t);
   }
 
-  return { user, tests };
+  // Discover: public tests from other users + attempt counts
+  const { data: publicRaw } = await supabase
+    .from("tests")
+    .select("id, title, duration_mins, is_layered, is_published, created_at, owner_id, test_sections(id, subject, test_questions(question_id)), users!owner_id(display_name, username)")
+    .eq("is_published", true)
+    .eq("visibility", "public")
+    .neq("owner_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(40);
+
+  const { data: allAttemptCounts } = await supabase
+    .from("attempts")
+    .select("test_id")
+    .not("submitted_at", "is", null);
+
+  const attemptCountMap = new Map<string, number>();
+  for (const a of allAttemptCounts ?? []) {
+    attemptCountMap.set(a.test_id, (attemptCountMap.get(a.test_id) ?? 0) + 1);
+  }
+
+  const { data: allSolidCounts } = await supabase
+    .from("solids")
+    .select("test_id")
+    .not("test_id", "is", null);
+
+  const solidCountMap = new Map<string, number>();
+  for (const s of allSolidCounts ?? []) {
+    if (s.test_id) solidCountMap.set(s.test_id, (solidCountMap.get(s.test_id) ?? 0) + 1);
+  }
+
+  const discoverTests = (publicRaw ?? []).map((t: any) => {
+    const sections = t.test_sections ?? [];
+    const qCount = sections.reduce((s: number, sec: any) => s + (sec.test_questions?.length ?? 0), 0);
+    const subjects: string[] = [...new Set(sections.map((s: any) => s.subject as string))];
+    return {
+      id: t.id, title: t.title,
+      duration_mins: t.duration_mins,
+      is_layered: t.is_layered ?? false,
+      question_count: qCount, subjects,
+      creator_name: t.users?.display_name ?? "Unknown",
+      creator_username: t.users?.username ?? null,
+      attempt_count: attemptCountMap.get(t.id) ?? 0,
+      solid_count: solidCountMap.get(t.id) ?? 0,
+    };
+  }).sort((a: any, b: any) => b.attempt_count - a.attempt_count);
+
+  return { user, tests, discoverTests };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -137,7 +183,7 @@ export async function action({ request, context }: Route.ActionArgs) {
 
 // ── Visibility helpers ─────────────────────────────────────────
 
-const VISIBILITY_LABELS: Record<string, { icon: string; label: string; hint: string }> = {
+export const VISIBILITY_LABELS: Record<string, { icon: string; label: string; hint: string }> = {
   public:      { icon: "globe", label: "Public",      hint: "Listed on Discover for everyone" },
   invite_only: { icon: "link",  label: "Invite only", hint: "Accessible via direct link only" },
   private:     { icon: "lock",  label: "Private",     hint: "Only visible to you" },
@@ -145,7 +191,7 @@ const VISIBILITY_LABELS: Record<string, { icon: string; label: string; hint: str
 
 // ── NewTestModal ───────────────────────────────────────────────
 
-function NewTestModal({ onClose, error }: { onClose: () => void; error?: string | null }) {
+export function NewTestModal({ onClose, error }: { onClose: () => void; error?: string | null }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -244,6 +290,9 @@ function ScoreBadge({ total, max }: { total: number; max: number }) {
 function ChainCard({ test: t }: { test: TestSummary }) {
   const fetcher = useFetcher();
   const navigate = useNavigate();
+
+  // Optimistic: hide immediately while delete is in-flight
+  if (fetcher.formData?.get("intent") === "delete_test") return null;
 
   const displayTitle = t.title.replace(/\s*\[Layer \d+\]/, "").trim();
   const allLayers = [t, ...t.layers];
@@ -397,7 +446,7 @@ function ChainCard({ test: t }: { test: TestSummary }) {
 
 // ── TestCard ───────────────────────────────────────────────────
 
-function VisibilityIcon({ icon }: { icon: string }) {
+export function VisibilityIcon({ icon }: { icon: string }) {
   if (icon === "globe") return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline-block", verticalAlign:"middle", marginBottom:1 }}>
       <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
@@ -423,6 +472,9 @@ function TestCard({ test: t }: { test: TestSummary }) {
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const [linkCopied, setLinkCopied] = useState(false);
+
+  // Optimistic: hide immediately while delete is in-flight
+  if (fetcher.formData?.get("intent") === "delete_test") return null;
 
   function handleCopyLink() {
     const url = `${window.location.origin}/tests/${t.id}/preview`;
@@ -556,9 +608,11 @@ function LayeredExplainer() {
 // ── Page ───────────────────────────────────────────────────────
 
 export default function TestsIndex({ loaderData, actionData }: Route.ComponentProps) {
-  const { user, tests } = loaderData;
+  const { user, tests, discoverTests } = loaderData as any;
   const error = actionData && "error" in actionData ? actionData.error : null;
   const [showCreate, setShowCreate] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === "discover" ? "discover" : "mine";
 
   const unattempted = tests.filter((t) => !t.submitted);
   const attempted   = tests.filter((t) => t.submitted);
@@ -593,19 +647,115 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
         <div className="pg-head">
           <div>
             <h1 className="pg-title">Tests</h1>
-            <p className="pg-subtitle">{tests.length === 0 ? "Create and take NTA-style layered tests" : `${tests.length} test${tests.length === 1 ? "" : "s"}`}</p>
+            <p className="pg-subtitle">{activeTab === "mine"
+              ? (tests.length === 0 ? "Create and take NTA-style layered tests" : `${tests.length} test${tests.length === 1 ? "" : "s"}`)
+              : `${(discoverTests as any[]).length} public test${(discoverTests as any[]).length === 1 ? "" : "s"} from the community`}
+            </p>
           </div>
-          {tests.length > 0 && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <Link to="/tests/generate" className="btn btn-ghost btn-sm">
-                <IconLayers size={14} /> Grand Layer
-              </Link>
-              <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
-                <IconPlus size={14} /> New test
-              </button>
-            </div>
-          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link to="/tests/generate" className="btn btn-ghost btn-sm" title="Auto-generate a test from your wrong answers">
+              <IconLayers size={14} /> Wrong-answers test
+            </Link>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
+              <IconPlus size={14} /> New test
+            </button>
+          </div>
         </div>
+
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: 4, padding: "0 0 20px", borderBottom: "1px solid var(--c-border)", marginBottom: 24 }}>
+          {[
+            { id: "mine",     label: "My Tests" },
+            { id: "discover", label: "Discover" },
+          ].map((tab) => (
+            <button key={tab.id} type="button"
+              onClick={() => setSearchParams(tab.id === "mine" ? {} : { tab: "discover" })}
+              style={{
+                padding: "7px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                background: activeTab === tab.id ? "var(--c-brand-500)" : "transparent",
+                color: activeTab === tab.id ? "#fff" : "var(--c-text-2)",
+                border: `1px solid ${activeTab === tab.id ? "var(--c-brand-500)" : "var(--c-border)"}`,
+                cursor: "pointer",
+              }}>
+              {tab.label}
+              {tab.id === "discover" && (discoverTests as any[]).length > 0 && (
+                <span style={{
+                  marginLeft: 6, fontSize: 10, fontWeight: 700,
+                  background: activeTab === "discover" ? "rgba(255,255,255,0.25)" : "var(--c-brand-50)",
+                  color: activeTab === "discover" ? "#fff" : "var(--c-brand-600)",
+                  padding: "0px 5px", borderRadius: 8,
+                }}>
+                  {(discoverTests as any[]).length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "discover" ? (
+          /* ── Discover tab ──────────────────────────────────── */
+          <div>
+            {(discoverTests as any[]).length === 0 ? (
+              <div style={{ textAlign: "center", padding: "60px 20px" }}>
+                <img src="/jeelo-reading.png" alt="Jeelo"
+                  style={{ width: 90, height: 90, objectFit: "contain", marginBottom: 16 }}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                <p style={{ fontSize: 15, fontWeight: 600, color: "var(--c-text)", marginBottom: 6 }}>No public tests yet.</p>
+                <p style={{ fontSize: 13, color: "var(--c-text-3)" }}>Publish your own and be first.</p>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+                {(discoverTests as any[]).map((t: any) => (
+                  <div key={t.id} style={{
+                    background: "var(--c-surface)", border: "1px solid var(--c-border)",
+                    borderRadius: 14, overflow: "hidden",
+                  }}>
+                    <div style={{ padding: "14px 16px 12px" }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--c-text)", lineHeight: 1.3, flex: 1 }}>
+                          {t.title}
+                        </h3>
+                        {t.is_layered && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                            color: "var(--c-brand-600)", background: "var(--c-brand-50)",
+                            border: "1px solid var(--c-brand-100)", padding: "2px 5px", borderRadius: 4, flexShrink: 0,
+                          }}>Layered</span>
+                        )}
+                      </div>
+                      <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--c-text-3)" }}>
+                        by{" "}
+                        {t.creator_username
+                          ? <Link to={`/u/${t.creator_username}`} style={{ color: "var(--c-text-2)", textDecoration: "none", fontWeight: 500 }}>{t.creator_name}</Link>
+                          : t.creator_name}
+                      </p>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "var(--c-text-3)" }}>
+                        <span>{t.question_count}Q · {t.duration_mins}m</span>
+                        {t.subjects.map((s: string) => (
+                          <span key={s} style={{ textTransform: "capitalize", background: "var(--c-bg)", border: "1px solid var(--c-border)", padding: "0 5px", borderRadius: 4 }}>{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{
+                      padding: "8px 16px", borderTop: "1px solid var(--c-border)",
+                      background: "var(--c-bg)", display: "flex", alignItems: "center", gap: 12,
+                    }}>
+                      <span style={{ fontSize: 11, color: "var(--c-text-3)" }}>{t.attempt_count} attempts</span>
+                      <span style={{ fontSize: 11, color: "var(--c-text-3)" }}>{t.solid_count} solid</span>
+                      <Link to={`/tests/${t.id}/preview`} style={{
+                        marginLeft: "auto", padding: "5px 14px", borderRadius: 7,
+                        background: "var(--c-brand-500)", color: "#fff",
+                        fontSize: 11, fontWeight: 700, textDecoration: "none",
+                      }}>Take</Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ── Mine tab (existing content) ─────────────────── */
+          <div>
 
         <div className="pg-body">
           {tests.length === 0 ? (
@@ -640,6 +790,8 @@ export default function TestsIndex({ loaderData, actionData }: Route.ComponentPr
             </>
           )}
         </div>
+          </div>
+        )}
       </main>
       {showCreate && <NewTestModal onClose={() => setShowCreate(false)} error={error} />}
     </div>

@@ -25,7 +25,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
   const { data: test } = await supabase
     .from("tests").select("id, title, duration_mins, is_published, exam_type")
     .eq("id", testId).single();
-  if (!test) throw redirect("/tests");
+  if (!test) throw redirect("/discover");
 
   const { data: attempt } = await supabase
     .from("attempts")
@@ -131,7 +131,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
   // Leaderboard: all submitted attempts for this test
   const { data: allAttempts } = await supabase
     .from("attempts")
-    .select("student_id, score_breakdown, submitted_at, users!student_id(display_name)")
+    .select("student_id, score_breakdown, submitted_at, users!student_id(display_name, username)")
     .eq("test_id", testId)
     .not("submitted_at", "is", null);
 
@@ -148,6 +148,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     leaderboard.push({
       student_id:         a.student_id,
       display_name:       (a.users as any)?.display_name ?? "Unknown",
+      username:           (a.users as any)?.username ?? null,
       score:              sb.total,
       max_marks:          sb.max_marks,
       correct:            lCorrect,
@@ -388,7 +389,7 @@ export default function TestResultPage({ loaderData }: Route.ComponentProps) {
         <div className="pg-head">
           <div>
             <div className="result-breadcrumb">
-              <Link to="/tests" className="result-breadcrumb-link">Tests</Link>
+              <Link to="/discover" className="result-breadcrumb-link">Discover</Link>
               <IconChevronRight size={13} />
               <span>{test.title}</span>
             </div>
