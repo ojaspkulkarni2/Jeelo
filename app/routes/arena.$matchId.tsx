@@ -33,19 +33,18 @@ const MODE_LABEL: Record<string, string> = {
   bullet: "Bullet", blitz: "Blitz", rapid: "Rapid",
 };
 const MARKS_CORRECT = 4;
-const MARKS_WRONG   = 1; // JEE: -1 for wrong
+const MARKS_WRONG   = 1;
 
 // ── Adaptive K-factor ─────────────────────────────────────────
-// High K in early games so the system finds your level fast.
+
 function getKFactor(gamesPlayed: number): number {
-  if (gamesPlayed <  5) return 160;  // placement: massive swings
-  if (gamesPlayed < 10) return 100;  // still calibrating
-  if (gamesPlayed < 20) return 56;   // settling
-  if (gamesPlayed < 50) return 32;   // narrowing
-  return 20;                         // stable
+  if (gamesPlayed <  5) return 160;
+  if (gamesPlayed < 10) return 100;
+  if (gamesPlayed < 20) return 56;
+  if (gamesPlayed < 50) return 32;
+  return 20;
 }
 
-// Whether this rating is still provisional (shown as "?" in UI)
 export function isProvisional(gamesPlayed: number): boolean {
   return gamesPlayed < 10;
 }
@@ -66,7 +65,6 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
 
   if (error || !match) throw new Response("Match not found", { status: 404 });
 
-  // Already submitted — go to result
   if (match.submitted_at) {
     return redirect(`/arena/${params.matchId}/result`);
   }
@@ -82,10 +80,10 @@ export async function action({ params, request, context }: Route.ActionArgs) {
   const supabase = createServerClient(env);
 
   const formData = await request.formData();
-  const answersJson = formData.get("answers") as string;
+  const answersJson        = formData.get("answers") as string;
+  const elapsedSecondsStr  = formData.get("elapsed_seconds") as string | null;
   const playerAnswers: Record<string, string> = JSON.parse(answersJson || "{}");
 
-  // Fetch match (verify ownership)
   const { data: match } = await supabase
     .from("arena_matches")
     .select("*")
@@ -94,55 +92,59 @@ export async function action({ params, request, context }: Route.ActionArgs) {
     .single();
 
   if (!match) throw new Response("Not found", { status: 404 });
-
-  // Already submitted (race condition guard)
-  if (match.submitted_at) {
-    return redirect(`/arena/${params.matchId}/result`);
-  }
+  if (match.submitted_at) return redirect(`/arena/${params.matchId}/result`);
 
   const questions: ArenaQuestion[] = match.questions as any;
   const botAnswers: Record<string, string | null> = match.bot_answers as any;
 
-  // Score player (correct answers)
   let playerCorrect = 0;
   for (const q of questions) {
     if (playerAnswers[q.id] === q.correct_answer) playerCorrect++;
   }
-  const playerAttempted = Object.values(playerAnswers).filter(a => a != null && a !== "").length;
-  const playerWrong = playerAttempted - playerCorrect;
-  // JEE-style: +4 correct, -1 wrong
+  const playerAttempted   = Object.values(playerAnswers).filter(a => a != null && a !== "").length;
+  const playerWrong       = playerAttempted - playerCorrect;
   const playerActualMarks = playerCorrect * MARKS_CORRECT - playerWrong * MARKS_WRONG;
-  const playerRawMarks    = playerAttempted * MARKS_CORRECT; // optimistic (no deductions)
 
-  // Score bot
   let botCorrect = 0;
   for (const q of questions) {
     if (botAnswers[q.id] && botAnswers[q.id] === q.correct_answer) botCorrect++;
   }
 
-  // ELO calculation (margin-based)
   const { data: rating } = await supabase
     .from("arena_ratings")
     .select("*")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const modeEloKey = `${match.mode}_elo` as keyof typeof rating;
+  const modeEloKey   = `${match.mode}_elo`   as keyof typeof rating;
   const modeGamesKey = `${match.mode}_games` as keyof typeof rating;
-  const playerElo = (rating as any)?.[modeEloKey] ?? 1200;
-  const gamesPlayed = (rating as any)?.[modeGamesKey] ?? 0;
+  const playerElo    = (rating as any)?.[modeEloKey]   ?? 1200;
+  const gamesPlayed  = (rating as any)?.[modeGamesKey] ?? 0;
 
-  const K = getKFactor(gamesPlayed);
-
+  const K        = getKFactor(gamesPlayed);
   const expected = 1 / (1 + Math.pow(10, (match.bot_elo - playerElo) / 400));
-  // Binary win/loss (not margin-based) so swings are always decisive
-  const actual = playerCorrect > botCorrect ? 1 : playerCorrect < botCorrect ? 0 : 0.5;
+  const actual   = playerCorrect > botCorrect ? 1 : playerCorrect < botCorrect ? 0 : 0.5;
   const eloChange = Math.round(K * (actual - expected));
-  const newElo = Math.max(100, playerElo + eloChange);
+  const newElo   = Math.max(100, playerElo + eloChange);
 
   const durationHours = MODE_SECONDS[match.mode] / 3600;
 
-  // Update match record
+  // ── avg_seconds_per_question — drives adaptive bot nudge ─────
+  const elapsedSeconds = elapsedSecondsStr != null
+    ? Math.min(parseInt(elapsedSecondsStr, 10) || MODE_SECONDS[match.mode], MODE_SECONDS[match.mode])
+    : MODE_SECONDS[match.mode];
+
+  const prevAvgSpq: number | null = (rating as any)?.avg_seconds_per_question ?? null;
+  let newAvgSpq: number | null = prevAvgSpq;
+
+  if (playerAttempted > 0) {
+    const matchSpq = elapsedSeconds / playerAttempted;
+    newAvgSpq = prevAvgSpq != null
+      ? prevAvgSpq * 0.8 + matchSpq * 0.2
+      : matchSpq;
+    newAvgSpq = Math.min(60, Math.max(2, newAvgSpq));
+  }
+
   await supabase
     .from("arena_matches")
     .update({
@@ -155,19 +157,19 @@ export async function action({ params, request, context }: Route.ActionArgs) {
     })
     .eq("id", params.matchId);
 
-  // Upsert arena_ratings — career marks uses actual JEE score
   const prevMarks = (rating as any)?.total_marks ?? 0;
-  const prevTime = (rating as any)?.total_time_hours ?? 0;
+  const prevTime  = (rating as any)?.total_time_hours ?? 0;
 
   await supabase
     .from("arena_ratings")
     .upsert(
       {
         user_id: user.id,
-        [`${match.mode}_elo`]: newElo,
+        [`${match.mode}_elo`]:   newElo,
         [`${match.mode}_games`]: gamesPlayed + 1,
-        total_marks: prevMarks + playerActualMarks, // actual JEE marks for career rate
-        total_time_hours: prevTime + durationHours,
+        total_marks:             prevMarks + playerActualMarks,
+        total_time_hours:        prevTime + durationHours,
+        ...(newAvgSpq != null ? { avg_seconds_per_question: newAvgSpq } : {}),
         updated_at: new Date().toISOString(),
       } as any,
       { onConflict: "user_id", ignoreDuplicates: false }
@@ -176,32 +178,75 @@ export async function action({ params, request, context }: Route.ActionArgs) {
   return redirect(`/arena/${params.matchId}/result`);
 }
 
+// ── Bot progress curve ────────────────────────────────────────
+//
+// High-ELO bots front-load answers (instant recall).
+// Low-ELO bots spread linearly (slow thinkers).
+
+function getBotProgressAt(
+  elapsed: number,
+  total: number,
+  botElo: number,
+  botTotalAttempts: number,
+): number {
+  const eloFraction      = Math.min(1, Math.max(0, (botElo - 100) / 2700));
+  const frontLoad        = 1.0 + eloFraction * 2.0;
+  const timeFraction     = Math.min(1, elapsed / total);
+  const progressFraction = Math.pow(timeFraction, 1 / frontLoad);
+  return Math.min(botTotalAttempts, Math.round(progressFraction * botTotalAttempts));
+}
+
 // ── Client — Match UI ─────────────────────────────────────────
 
 export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
   const { user, match } = loaderData;
   const submit = useSubmit();
 
-  const totalSeconds = MODE_SECONDS[match.mode];
-  const elapsedSoFar = Math.floor(
-    (Date.now() - new Date(match.started_at).getTime()) / 1000
-  );
+  const totalSeconds     = MODE_SECONDS[match.mode];
+  const elapsedSoFar     = Math.floor((Date.now() - new Date(match.started_at).getTime()) / 1000);
   const initialRemaining = Math.max(0, totalSeconds - elapsedSoFar);
 
-  const [timeLeft, setTimeLeft] = useState(initialRemaining);
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [submitted, setSubmitted] = useState(false);
+  const [timeLeft,    setTimeLeft]    = useState(initialRemaining);
+  const [currentIdx,  setCurrentIdx]  = useState(0);
+  const [answers,     setAnswers]     = useState<Record<string, string>>({});
+  const [submitted,   setSubmitted]   = useState(false);
   const [botAnswered, setBotAnswered] = useState(0);
+  // imagesReady: how many images have been preloaded (shown in loading state)
+  const [imagesReady, setImagesReady] = useState(0);
 
-  // Bot simulation — pre-compute how many questions bot answers at each second
   const botTotalAttempts = Object.values(match.bot_answers).filter(v => v !== null).length;
-  const botRate = totalSeconds > 0 ? botTotalAttempts / totalSeconds : 0;
+  const answersRef       = useRef(answers);
+  answersRef.current     = answers;
+  const matchStartRef    = useRef(Date.now());
 
-  const answersRef = useRef(answers);
-  answersRef.current = answers;
+  // ── Preload ALL question images immediately on mount ──────────
+  //
+  // We fire off new Image() for every question in one shot. The browser
+  // will start fetching all of them in parallel (respecting its own
+  // concurrency limit, typically 6–8 per origin). By the time the user
+  // reaches question 3 or 4 the rest are already in cache — zero wait.
+  //
+  // We track how many have loaded so we can show a brief "Loading…" bar
+  // before the first question, rather than a blank image flash.
+  useEffect(() => {
+    let mounted = true;
+    const imgs: HTMLImageElement[] = [];
+    for (const q of match.questions) {
+      const img = new Image();
+      img.onload  = () => { if (mounted) setImagesReady(n => n + 1); };
+      img.onerror = () => { if (mounted) setImagesReady(n => n + 1); }; // count errors too — don't block forever
+      img.src = q.image_url;
+      imgs.push(img);
+    }
+    return () => {
+      mounted = false;
+      // Let the browser keep the cache but stop JS callbacks
+      for (const img of imgs) { img.onload = null; img.onerror = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── Persist answers to localStorage every tick so reload doesn't lose them ──
+  // ── Persist answers to localStorage ──────────────────────────
   const LS_KEY = `arena_answers_${match.id}`;
   useEffect(() => {
     if (Object.keys(answers).length > 0) {
@@ -209,7 +254,6 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
     }
   }, [answers, LS_KEY]);
 
-  // Restore from localStorage on mount (covers page refresh mid-match)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(LS_KEY);
@@ -221,7 +265,7 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Warn before navigating away
+  // ── Warn before navigating away ───────────────────────────────
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {
       if (submitted) return;
@@ -236,50 +280,44 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
     if (submitted) return;
     setSubmitted(true);
     try { localStorage.removeItem(`arena_answers_${match.id}`); } catch {}
+    const elapsedSeconds = Math.round((Date.now() - matchStartRef.current) / 1000);
     const form = new FormData();
-    form.append("answers", JSON.stringify(answersRef.current));
+    form.append("answers",         JSON.stringify(answersRef.current));
+    form.append("elapsed_seconds", String(elapsedSeconds));
     submit(form, { method: "post" });
   }, [submitted, submit, match.id]);
 
-  // Countdown timer
+  // ── Countdown + bot progress ──────────────────────────────────
   useEffect(() => {
-    if (timeLeft <= 0) {
-      doSubmit();
-      return;
-    }
+    if (timeLeft <= 0) { doSubmit(); return; }
     const t = setInterval(() => {
       setTimeLeft(prev => {
         const next = prev - 1;
-        // Bot progress update
-        setBotAnswered(Math.min(botTotalAttempts, Math.round((totalSeconds - next) * botRate)));
-        if (next <= 0) {
-          clearInterval(t);
-          doSubmit();
-        }
+        const elapsed = totalSeconds - next;
+        setBotAnswered(getBotProgressAt(elapsed, totalSeconds, match.bot_elo, botTotalAttempts));
+        if (next <= 0) { clearInterval(t); doSubmit(); }
         return next;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const currentQ = match.questions[currentIdx];
-  const totalQ = match.questions.length;
+  const currentQ      = match.questions[currentIdx];
+  const totalQ        = match.questions.length;
   const answeredCount = Object.keys(answers).length;
 
-  // Live marks/hour — based on questions attempted, regardless of correct/wrong
-  // (we don't know correct during match — this is pace metric)
   const elapsedSeconds = totalSeconds - timeLeft;
-  const elapsedHours = elapsedSeconds / 3600;
-  const liveMph = elapsedHours > 0.0005
+  const elapsedHours   = elapsedSeconds / 3600;
+  const liveMph        = elapsedHours > 0.0005
     ? Math.round((answeredCount * MARKS_CORRECT) / elapsedHours)
     : 0;
 
-  // Timer colour
-  const pct = timeLeft / totalSeconds;
+  const pct        = timeLeft / totalSeconds;
   const timerColor = pct > 0.5 ? "#3a9e6a" : pct > 0.25 ? "#d4a017" : "#d04040";
 
   function formatTime(s: number) {
-    const m = Math.floor(s / 60);
+    const m   = Math.floor(s / 60);
     const sec = s % 60;
     return `${m}:${sec.toString().padStart(2, "0")}`;
   }
@@ -287,174 +325,124 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
   function handleAnswer(letter: string) {
     if (submitted) return;
     setAnswers(prev => ({ ...prev, [currentQ.id]: letter }));
-    // Always advance — loop back to start when at end so there's no ceiling
     setCurrentIdx(prev => (prev + 1) % totalQ);
   }
 
+  function handleSkip() {
+    if (submitted) return;
+    setCurrentIdx(prev => (prev + 1) % totalQ);
+  }
+
+  // First-question loading guard — only shown until the first image is cached.
+  // After that we never block again (subsequent images load in background).
+  const firstImageReady = imagesReady > 0;
+  const loadingPct      = Math.round((imagesReady / totalQ) * 100);
+
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "var(--c-bg)",
-      display: "flex",
-      flexDirection: "column",
-    }}>
+    <div style={{ minHeight: "100vh", background: "var(--c-bg)", display: "flex", flexDirection: "column" }}>
+
       {/* ── Top bar ── */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "12px 20px",
-        borderBottom: "1px solid var(--c-border)",
-        background: "var(--c-surface)",
-        gap: 16,
-        flexWrap: "wrap",
-      }}>
-        {/* Mode badge */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: "1px solid var(--c-border)", background: "var(--c-surface)", gap: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: "var(--c-text)" }}>
             {MODE_LABEL[match.mode] ?? match.mode} · vs {match.bot_name}
           </span>
         </div>
 
-        {/* Timer */}
-        <div style={{
-          fontSize: 28,
-          fontWeight: 800,
-          fontVariantNumeric: "tabular-nums",
-          color: timerColor,
-          letterSpacing: -0.5,
-          minWidth: 72,
-          textAlign: "center",
-        }}>
+        <div style={{ fontSize: 28, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: timerColor, letterSpacing: -0.5, minWidth: 72, textAlign: "center" }}>
           {formatTime(timeLeft)}
         </div>
 
-        {/* Raw marks/hour — pace metric only, result hidden until end */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-          <span style={{ fontSize: 11, color: "var(--c-text-3)", marginBottom: 1 }}>
-            raw marks/hr
-          </span>
-          <span style={{
-            fontSize: 20, fontWeight: 800, color: "var(--c-brand-500)",
-            fontVariantNumeric: "tabular-nums",
-          }}>
+          <span style={{ fontSize: 11, color: "var(--c-text-3)", marginBottom: 1 }}>raw marks/hr</span>
+          <span style={{ fontSize: 20, fontWeight: 800, color: "var(--c-brand-500)", fontVariantNumeric: "tabular-nums" }}>
             {liveMph.toLocaleString()}
           </span>
         </div>
       </div>
 
       {/* ── Progress bars ── */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 0,
-        borderBottom: "1px solid var(--c-border)",
-        background: "var(--c-surface)",
-      }}>
-        {/* Player */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: "1px solid var(--c-border)", background: "var(--c-surface)" }}>
         <div style={{ padding: "10px 16px", borderRight: "1px solid var(--c-border)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--c-text)" }}>
-              {user.display_name}
-            </span>
-            <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>
-              {answeredCount}/{totalQ}
-            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--c-text)" }}>{user.display_name}</span>
+            <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>{answeredCount}/{totalQ}</span>
           </div>
           <div style={{ height: 5, background: "var(--c-subtle)", borderRadius: 3, overflow: "hidden" }}>
-            <div style={{
-              height: "100%",
-              width: `${(answeredCount / totalQ) * 100}%`,
-              background: "var(--c-brand-500)",
-              borderRadius: 3,
-              transition: "width 0.3s",
-            }} />
+            <div style={{ height: "100%", width: `${(answeredCount / totalQ) * 100}%`, background: "var(--c-brand-500)", borderRadius: 3, transition: "width 0.3s" }} />
           </div>
         </div>
-
-        {/* Bot */}
         <div style={{ padding: "10px 16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--c-text-2)" }}>
               {match.bot_name} <span style={{ fontWeight: 400, color: "var(--c-text-3)" }}>({match.bot_elo})</span>
             </span>
-            <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>
-              {botAnswered}/{totalQ}
-            </span>
+            <span style={{ fontSize: 12, color: "var(--c-text-3)" }}>{botAnswered}/{totalQ}</span>
           </div>
           <div style={{ height: 5, background: "var(--c-subtle)", borderRadius: 3, overflow: "hidden" }}>
-            <div style={{
-              height: "100%",
-              width: `${(botAnswered / totalQ) * 100}%`,
-              background: "#7a6e62",
-              borderRadius: 3,
-              transition: "width 1s linear",
-            }} />
+            <div style={{ height: "100%", width: `${(botAnswered / totalQ) * 100}%`, background: "#7a6e62", borderRadius: 3, transition: "width 1s linear" }} />
           </div>
         </div>
       </div>
 
       {/* ── Question area ── */}
-      <div style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "24px 16px",
-        maxWidth: 720,
-        width: "100%",
-        margin: "0 auto",
-      }}>
-        {/* Question counter + nav dots */}
-        <div style={{
-          display: "flex",
-          gap: 4,
-          marginBottom: 20,
-          flexWrap: "wrap",
-          justifyContent: "center",
-        }}>
-          {match.questions.map((q, i) => {
-            const isAnswered = !!answers[q.id];
-            const isCurrent = i === currentIdx;
-            return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 16px", maxWidth: 720, width: "100%", margin: "0 auto" }}>
+
+        {!firstImageReady ? (
+          // ── Pre-load splash — shown only until first image is cached ──
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: "var(--c-text-3)" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Loading questions… {loadingPct}%</div>
+            <div style={{ width: 200, height: 4, background: "var(--c-subtle)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${loadingPct}%`, background: "var(--c-brand-500)", borderRadius: 2, transition: "width 0.2s" }} />
+            </div>
+            <div style={{ fontSize: 11, color: "var(--c-text-3)" }}>Caching all {totalQ} images so the match runs instantly</div>
+          </div>
+        ) : currentQ ? (
+          <>
+            {/* ── Question counter + Skip ── */}
+            <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: "var(--c-text-3)", fontWeight: 600 }}>
+                Q{currentIdx + 1} <span style={{ fontWeight: 400 }}>of {totalQ}</span>
+              </span>
               <button
-                key={q.id}
-                onClick={() => setCurrentIdx(i)}
+                onClick={handleSkip}
+                disabled={submitted}
                 style={{
-                  width: 24, height: 24,
-                  borderRadius: "var(--r-xs)",
-                  border: isCurrent
-                    ? "2px solid var(--c-brand-500)"
-                    : "1.5px solid var(--c-border)",
-                  background: isAnswered
-                    ? "var(--c-brand-100)"
-                    : isCurrent
-                      ? "var(--c-brand-50)"
-                      : "transparent",
-                  fontSize: 10,
+                  padding: "5px 14px",
+                  borderRadius: "var(--r-sm)",
+                  border: "1.5px solid var(--c-border)",
+                  background: "transparent",
+                  color: "var(--c-text-3)",
+                  fontSize: 12,
                   fontWeight: 600,
-                  color: isAnswered ? "var(--c-brand-600)" : "var(--c-text-3)",
-                  cursor: "pointer",
+                  cursor: submitted ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
                   transition: "all var(--t)",
                 }}
+                onMouseEnter={e => {
+                  if (!submitted) {
+                    (e.currentTarget as HTMLElement).style.borderColor = "var(--c-border-strong)";
+                    (e.currentTarget as HTMLElement).style.color = "var(--c-text-2)";
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!submitted) {
+                    (e.currentTarget as HTMLElement).style.borderColor = "var(--c-border)";
+                    (e.currentTarget as HTMLElement).style.color = "var(--c-text-3)";
+                  }
+                }}
               >
-                {i + 1}
+                Skip
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
               </button>
-            );
-          })}
-        </div>
+            </div>
 
-        {/* Question image */}
-        {currentQ && (
-          <>
-            <div style={{
-              width: "100%",
-              background: "var(--c-surface)",
-              border: "1px solid var(--c-border)",
-              borderRadius: "var(--r-lg)",
-              overflow: "hidden",
-              marginBottom: 20,
-            }}>
+            {/* ── Question image — no loading spinner, already in cache ── */}
+            <div style={{ width: "100%", background: "var(--c-surface)", border: "1px solid var(--c-border)", borderRadius: "var(--r-lg)", overflow: "hidden", marginBottom: 16 }}>
               <img
                 key={currentQ.id}
                 src={currentQ.image_url}
@@ -463,13 +451,8 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
               />
             </div>
 
-            {/* Answer buttons */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 10,
-              width: "100%",
-            }}>
+            {/* ── Answer buttons ── */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, width: "100%" }}>
               {(["A", "B", "C", "D"] as const).map(letter => {
                 const selected = answers[currentQ.id] === letter;
                 return (
@@ -480,9 +463,7 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
                     style={{
                       padding: "14px 20px",
                       borderRadius: "var(--r-md)",
-                      border: selected
-                        ? "2px solid var(--c-brand-500)"
-                        : "1.5px solid var(--c-border)",
+                      border: selected ? "2px solid var(--c-brand-500)" : "1.5px solid var(--c-border)",
                       background: selected ? "var(--c-brand-100)" : "var(--c-surface)",
                       color: selected ? "var(--c-brand-600)" : "var(--c-text)",
                       fontSize: 16,
@@ -506,13 +487,7 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
                       }
                     }}
                   >
-                    <span style={{
-                      width: 28, height: 28,
-                      borderRadius: "var(--r-xs)",
-                      background: selected ? "var(--c-brand-200)" : "var(--c-subtle)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 13, flexShrink: 0,
-                    }}>
+                    <span style={{ width: 28, height: 28, borderRadius: "var(--r-xs)", background: selected ? "var(--c-brand-200)" : "var(--c-subtle)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>
                       {letter}
                     </span>
                     Option {letter}
@@ -521,7 +496,6 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
               })}
             </div>
 
-            {/* Forfeit (explicit, destructive — no accidental early submit) */}
             {!submitted && (
               <button
                 onClick={() => {
@@ -529,37 +503,19 @@ export default function ArenaMatch({ loaderData }: Route.ComponentProps) {
                     doSubmit();
                   }
                 }}
-                style={{
-                  marginTop: 24,
-                  padding: "8px 20px",
-                  background: "transparent",
-                  color: "var(--c-text-3)",
-                  border: "1px solid var(--c-border)",
-                  borderRadius: "var(--r-md)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
+                style={{ marginTop: 20, padding: "8px 20px", background: "transparent", color: "var(--c-text-3)", border: "1px solid var(--c-border)", borderRadius: "var(--r-md)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
               >
                 Forfeit match
               </button>
             )}
 
             {submitted && (
-              <div style={{
-                marginTop: 20,
-                padding: "12px 24px",
-                background: "var(--c-subtle)",
-                borderRadius: "var(--r-md)",
-                fontSize: 13,
-                color: "var(--c-text-3)",
-                textAlign: "center",
-              }}>
+              <div style={{ marginTop: 20, padding: "12px 24px", background: "var(--c-subtle)", borderRadius: "var(--r-md)", fontSize: 13, color: "var(--c-text-3)", textAlign: "center" }}>
                 Scoring your answers…
               </div>
             )}
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );

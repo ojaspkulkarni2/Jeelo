@@ -154,10 +154,57 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     }
   }
 
+  // ── Strip the match before sending to client ─────────────────
+  // The raw match record contains every question in the arena pool
+  // (up to 300) including image_url and correct_answer. We must NOT
+  // send that to the browser — it would expose the entire question
+  // bank to anyone who opens DevTools.
+  //
+  // We only return:
+  //   • questions the player actually attempted (answered, not skipped)
+  //   • for each: id, image_url, correct_answer (they answered it, fair to reveal)
+  //   • player_answers and bot_answers filtered to the same set
+  //
+  // Skipped questions are dropped — no image, no answer, not reviewable.
+
+  const playerAnswers: Record<string, string> = (match.player_answers ?? {}) as any;
+  const botAnswers: Record<string, string | null> = (match.bot_answers ?? {}) as any;
+  const allQuestions: Array<{ id: string; image_url: string; correct_answer: string }> =
+    (match.questions ?? []) as any;
+
+  // Only questions the player actually answered (not skipped)
+  const attemptedQuestions = allQuestions.filter(q =>
+    playerAnswers[q.id] != null && playerAnswers[q.id] !== ""
+  );
+
+  // Filtered bot_answers — only for attempted questions (don't leak bot answers to unseen Qs)
+  const filteredBotAnswers: Record<string, string | null> = {};
+  for (const q of attemptedQuestions) {
+    filteredBotAnswers[q.id] = botAnswers[q.id] ?? null;
+  }
+
+  // Safe match object — no pool leakage
+  const safeMatch = {
+    ...match,
+    questions: attemptedQuestions,          // only attempted, with correct_answer
+    bot_answers: filteredBotAnswers,        // only for attempted
+    // player_answers already only has answered questions
+  };
+
+  // Scope social data to attempted questions only
+  const attemptedIds = attemptedQuestions.map(q => q.id);
+  const filteredSolidCounts: Record<string, number> = {};
+  for (const id of attemptedIds) filteredSolidCounts[id] = solidCounts[id] ?? 0;
+  const filteredOptionMap: Record<string, Record<string, number>> = {};
+  for (const id of attemptedIds) if (optionMap[id]) filteredOptionMap[id] = optionMap[id];
+
   return data({
-    user, match, careerMph, gamesPlayed,
-    solidCounts, mySolids: [...mySolids],
-    optionMap, pctMap,
+    user, match: safeMatch, careerMph, gamesPlayed,
+    solidCounts: filteredSolidCounts, mySolids: [...mySolids],
+    optionMap: filteredOptionMap, pctMap,
+    // Pass total question count separately so overview can show skipped count
+    // without needing the actual skipped question data
+    totalQuestions: allQuestions.length,
   });
 }
 
@@ -424,17 +471,17 @@ function OptionBars({
 // ── Overview Screen ───────────────────────────────────────────
 
 function OverviewScreen({ match, careerMph, gamesPlayed, playerCorrect, botCorrect,
-  playerAttempted, playerWrong, questions, actualMph, rawMph, eloDelta,
+  playerAttempted, playerWrong, totalQuestions, actualMph, rawMph, eloDelta,
   onReview }: {
   match: any; careerMph: number | null; gamesPlayed: number;
   playerCorrect: number; botCorrect: number; playerAttempted: number;
-  playerWrong: number; questions: any[]; actualMph: number; rawMph: number;
+  playerWrong: number; totalQuestions: number; actualMph: number; rawMph: number;
   eloDelta: number; onReview: () => void;
 }) {
   const won  = playerCorrect > botCorrect;
   const draw = playerCorrect === botCorrect;
   const provisional = gamesPlayed < 10;
-  const skipped = questions.length - playerAttempted;
+  const skipped = totalQuestions - playerAttempted;
 
   const resultColor = won ? "#2d7a4f" : draw ? "var(--c-text-2)" : "#c03030";
   const resultBg    = won ? "rgba(58,158,106,0.08)" : draw ? "var(--c-subtle)" : "rgba(208,64,64,0.06)";
@@ -535,7 +582,7 @@ function OverviewScreen({ match, careerMph, gamesPlayed, playerCorrect, botCorre
 
       {/* Actions */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {wrongCount + skipped > 0 && (
+        {wrongCount > 0 && (
           <button type="button" onClick={onReview} style={{
             padding: "12px 24px", borderRadius: 10, fontSize: 14, fontWeight: 700,
             background: "var(--c-brand-500)", color: "#fff", border: "none", cursor: "pointer",
@@ -579,12 +626,11 @@ function ReviewScreen({
   optionMap: Record<string, Record<string, number>>;
   onBack: () => void;
 }) {
-  const [filter, setFilter] = useState<"all" | "wrong" | "skipped">("wrong");
+  const [filter, setFilter] = useState<"all" | "wrong">("wrong");
   const [idx, setIdx] = useState(0);
 
   const filtered = qResults.filter(q => {
-    if (filter === "wrong")   return q.playerAns && !q.playerRight;
-    if (filter === "skipped") return !q.playerAns;
+    if (filter === "wrong") return !q.playerRight;
     return true;
   });
 
@@ -593,8 +639,7 @@ function ReviewScreen({
 
   const q = filtered[idx] ?? null;
 
-  const wrongCount   = qResults.filter(q => q.playerAns && !q.playerRight).length;
-  const skippedCount = qResults.filter(q => !q.playerAns).length;
+  const wrongCount = qResults.filter(q => !q.playerRight).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -619,8 +664,8 @@ function ReviewScreen({
         <div style={{ display: "flex", gap: 4 }}>
           {([
             { key: "wrong",   label: `Wrong (${wrongCount})` },
-            { key: "skipped", label: `Skipped (${skippedCount})` },
-            { key: "all",     label: `All (${qResults.length})` },
+
+            { key: "all",     label: `All attempted (${qResults.length})` },
           ] as const).map(({ key, label }) => (
             <button key={key} type="button" onClick={() => setFilter(key)} style={{
               padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
@@ -805,7 +850,7 @@ function ReviewScreen({
 // ── Root Component ─────────────────────────────────────────────
 
 export default function ArenaResult({ loaderData }: Route.ComponentProps) {
-  const { user, match, careerMph, gamesPlayed, solidCounts, mySolids, optionMap, pctMap } = loaderData as any;
+  const { user, match, careerMph, gamesPlayed, solidCounts, mySolids, optionMap, pctMap, totalQuestions } = loaderData as any;
   const [view, setView] = useState<"overview" | "review">("overview");
 
   const mySolidsSet = new Set<string>(mySolids);
@@ -862,7 +907,7 @@ export default function ArenaResult({ loaderData }: Route.ComponentProps) {
               match={match} careerMph={careerMph} gamesPlayed={gamesPlayed}
               playerCorrect={playerCorrect} botCorrect={botCorrect}
               playerAttempted={playerAttempted} playerWrong={playerWrong}
-              questions={questions} actualMph={actualMph} rawMph={rawMph} eloDelta={eloDelta}
+              totalQuestions={totalQuestions} actualMph={actualMph} rawMph={rawMph} eloDelta={eloDelta}
               onReview={() => setView("review")}
             />
           </div>
